@@ -1,0 +1,15 @@
+[project]
+name = "llm-arena"
+version = "1.0.0"
+description = "Local LLM Arena: two llama-server models compete, debate, design, code and test together"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+llm-arena = "llm_arena.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["llm_arena*"]
+
+[tool.setuptools.package-data]
+llm_arena = ["static/*", "static/css/*", "static/js/*", "static/js/views/*"]

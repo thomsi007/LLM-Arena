@@ -1,0 +1,150 @@
+// LLM A / LLM B configuration, connection test, model auto-detection, global settings.
+import { api } from "../api.js";
+import { state, refresh } from "../state.js";
+import { esc, toast } from "../ui.js";
+
+let root;
+let saveTimer = null;
+
+function llmCard(slot) {
+  const c = state.project.llms[slot];
+  const f = (key, label, type = "text", extra = "") =>
+    `<label class="field"><span>${label}</span><input type="${type}" data-slot="${slot}" data-key="${key}" value="${esc(c[key] ?? "")}" ${extra}></label>`;
+  return `<div class="card slot-${slot.toLowerCase()}">
+    <div class="card-head"><h2>${slot === "A" ? "LLM A / Llama Server A" : "LLM B / Llama Server B"}</h2>
+      <span class="spacer"></span><span class="badge ${slot.toLowerCase()}" id="conn-badge-${slot}">nincs tesztelve</span></div>
+    ${f("name", "Megjelenített név")}
+    ${f("base_url", "URL / endpoint (pl. http://127.0.0.1:8080 vagy …/v1)", "url")}
+    <div class="row">
+      <label class="field"><span>Modell (üres vagy „auto” = automatikus felismerés)</span>
+        <input type="text" list="models-${slot}" data-slot="${slot}" data-key="model" value="${esc(c.model)}" placeholder="auto">
+        <datalist id="models-${slot}"></datalist></label>
+      <button class="btn" data-detect="${slot}" style="margin-top:10px">🔍 Felismerés</button>
+    </div>
+    ${f("api_key", "API-kulcs (opcionális)", "password", 'autocomplete="off" placeholder="nincs"')}
+    <div class="grid3">
+      ${f("timeout", "Timeout (s)", "number", 'min="1" step="1"')}
+      ${f("max_tokens", "Max token", "number", 'min="1" step="1"')}
+      ${f("retries", "Újrapróbálások", "number", 'min="0" max="5"')}
+    </div>
+    <label class="field"><span>Temperature: <b id="temp-${slot}">${c.temperature}</b></span>
+      <input type="range" min="0" max="2" step="0.05" data-slot="${slot}" data-key="temperature" value="${c.temperature}"></label>
+    <label class="field"><span>Rendszerprompt (minden híváshoz hozzáadódik a szerep-prompt előtt)</span>
+      <textarea rows="3" data-slot="${slot}" data-key="system_prompt" placeholder="pl. Tömören és pontosan válaszolj.">${esc(c.system_prompt)}</textarea></label>
+    <div class="row">
+      <label class="check"><input type="checkbox" data-slot="${slot}" data-key="stream" ${c.stream ? "checked" : ""}> Streaming</label>
+      <label class="check" title="A rendszer HTTP proxy beállításainak használata"><input type="checkbox" data-slot="${slot}" data-key="use_system_proxy" ${c.use_system_proxy ? "checked" : ""}> Rendszer proxy</label>
+      <label class="field" style="max-width:190px"><span>Kontextus-keret (karakter)</span>
+        <input type="number" min="2000" step="1000" data-slot="${slot}" data-key="context_chars" value="${c.context_chars}"></label>
+      <span class="spacer"></span>
+      <button class="btn primary" data-test="${slot}">⚡ Kapcsolat tesztelése</button>
+    </div>
+    <div class="conn-steps" id="conn-${slot}"></div>
+  </div>`;
+}
+
+function globalCard() {
+  const s = state.project.settings;
+  const sel = (key, opts) => `<select data-setting="${key}">${opts.map(([v, l]) => `<option value="${v}" ${String(s[key]) === String(v) ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+  return `<div class="card"><div class="card-head"><h2>Általános beállítások</h2></div>
+    <div class="grid3">
+      <label class="field"><span>Válasz nyelve</span><input type="text" data-setting="language" value="${esc(s.language)}"></label>
+      <label class="field"><span>Elsődleges fejlesztő</span>${sel("developer", [["A", "LLM A (B a reviewer)"], ["B", "LLM B (A a reviewer)"]])}</label>
+      <label class="field"><span>Moderátor / szintetizáló</span>${sel("moderator", [["A", "LLM A"], ["B", "LLM B"]])}</label>
+      <label class="field"><span>Vitakörök száma</span><input type="number" min="1" max="8" data-setting="debate_rounds" value="${s.debate_rounds}"></label>
+      <label class="field"><span>Max. javító iteráció</span><input type="number" min="0" max="10" data-setting="max_fix_iterations" value="${s.max_fix_iterations}"></label>
+      <label class="field"><span>Teszt timeout (s)</span><input type="number" min="5" max="600" data-setting="test_timeout" value="${s.test_timeout}"></label>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" data-setting="dual_architecture" ${s.dual_architecture ? "checked" : ""}> Architektúra: mindkét modell javasol + közös döntés</label>
+      <label class="check"><input type="checkbox" data-setting="json_repair" ${s.json_repair ? "checked" : ""}> Hibás JSON esetén javítás kérése</label>
+    </div>
+    <div class="warnbox mt"><label class="check"><input type="checkbox" data-setting="allow_code_execution" ${s.allow_code_execution ? "checked" : ""}>
+      <strong>Generált kód futtatásának engedélyezése (tesztelés)</strong></label>
+      <div class="hint">A modellek által írt Python kód a gépeden, a te felhasználóddal fut egy ideiglenes mappában (időkorlát, memória- és CPU-limit, tisztított környezet) – ez folyamat-izoláció, nem teljes sandbox. Csak megbízható modellekkel / felügyelt környezetben kapcsold be.</div></div>
+  </div>`;
+}
+
+function collect() {
+  const llms = { A: {}, B: {} };
+  root.querySelectorAll("[data-slot][data-key]").forEach((el) => {
+    const v = el.type === "checkbox" ? el.checked : el.value;
+    llms[el.dataset.slot][el.dataset.key] = v;
+  });
+  const settings = {};
+  root.querySelectorAll("[data-setting]").forEach((el) => {
+    settings[el.dataset.setting] = el.type === "checkbox" ? el.checked : el.value;
+  });
+  return { llms, settings };
+}
+
+async function save(silent = true) {
+  clearTimeout(saveTimer);
+  try {
+    await api.saveConfig(collect());
+    if (!silent) toast("Beállítások mentve", "ok");
+    refresh(50);
+  } catch (e) { toast("Mentés sikertelen: " + e.message, "error"); }
+}
+
+function renderSteps(slot, res) {
+  const names = { health: "Elérhetőség (/health)", models: "Modellek (/v1/models)", completion: "Próba-válasz (chat completion)" };
+  const badge = root.querySelector(`#conn-badge-${slot}`);
+  badge.textContent = res.ok ? `OK · ${res.model || "?"}` : "HIBA";
+  badge.className = `badge ${res.ok ? "ok" : "err"}`;
+  root.querySelector(`#conn-${slot}`).innerHTML = res.steps.map((s) => `<div>${s.ok ? "✅" : "❌"} <b>${names[s.step] || s.step}</b>:
+    ${esc(s.info || (s.error ? `${s.error.label}: ${s.error.message}` : ""))}</div>`).join("") +
+    `<div class="hint">Összesen ${res.latency}s</div>`;
+  state.conn[slot] = { ok: res.ok, model: res.model, error: res.ok ? null : "kapcsolati hiba" };
+}
+
+export default {
+  mount(el) {
+    root = el;
+    root.innerHTML = `<h1>LLM beállítások</h1>
+      <p class="subtitle">Két független, OpenAI-kompatibilis endpoint (llama.cpp <code>llama-server</code>, vLLM, LM Studio, Ollama /v1…). A változások automatikusan mentődnek.</p>
+      <div class="grid2">${llmCard("A")}${llmCard("B")}</div>${globalCard()}`;
+    root.addEventListener("input", (e) => {
+      if (e.target.dataset.key === "temperature") root.querySelector(`#temp-${e.target.dataset.slot}`).textContent = e.target.value;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => save(true), 700);
+    });
+    root.addEventListener("change", (e) => { if (e.target.type === "checkbox" || e.target.tagName === "SELECT") save(true); });
+    root.addEventListener("click", async (e) => {
+      const t = e.target.closest("[data-test]");
+      if (t) {
+        const slot = t.dataset.test;
+        t.disabled = true;
+        root.querySelector(`#conn-${slot}`).innerHTML = '<div class="hint">Tesztelés…</div>';
+        try {
+          await save(true);
+          const r = await api.testLLM(slot);
+          renderSteps(slot, r.result);
+          const modelInput = root.querySelector(`[data-slot="${slot}"][data-key="model"]`);
+          if (r.result.models?.length) {
+            root.querySelector(`#models-${slot}`).innerHTML = r.result.models.map((m) => `<option value="${esc(m)}">`).join("");
+            if (!modelInput.value) modelInput.placeholder = `auto → ${r.result.models[0]}`;
+          }
+        } catch (err) { toast(err.message, "error"); } finally { t.disabled = false; }
+        return;
+      }
+      const d = e.target.closest("[data-detect]");
+      if (d) {
+        const slot = d.dataset.detect;
+        d.disabled = true;
+        try {
+          await save(true);
+          const r = await api.detectModels(slot);
+          if (!r.ok) { toast(`LLM ${slot}: ${r.error?.label}: ${r.error?.message}`, "error"); return; }
+          root.querySelector(`#models-${slot}`).innerHTML = r.models.map((m) => `<option value="${esc(m)}">`).join("");
+          const input = root.querySelector(`[data-slot="${slot}"][data-key="model"]`);
+          input.placeholder = r.model ? `auto → ${r.model}` : "auto";
+          toast(`LLM ${slot}: ${r.models.length} modell – ${r.models.join(", ") || "nincs lista"}`, "ok");
+          state.conn[slot] = { ok: true, model: r.model };
+        } catch (err) { toast(err.message, "error"); } finally { d.disabled = false; }
+      }
+    });
+  },
+  update() { /* form is persistent; nothing to redraw */ },
+  unmount() { if (saveTimer) save(true); },
+};
