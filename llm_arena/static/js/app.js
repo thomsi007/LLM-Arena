@@ -12,8 +12,9 @@ import consensus from "./views/consensus.js";
 import pipeline from "./views/pipeline.js";
 import log from "./views/log.js";
 import project from "./views/project.js";
+import diagnostics from "./views/diagnostics.js";
 
-const VIEWS = { settings, arena, debate, design, code, testing, consensus, pipeline, log, project };
+const VIEWS = { settings, arena, debate, design, code, testing, consensus, pipeline, log, project, diagnostics };
 const main = document.getElementById("main");
 let current = null;
 
@@ -143,6 +144,11 @@ async function boot() {
   renderTop();
   show(tab);
   probeConnections();
+  api.get("/api/health").then((h) => {
+    const v = h.version || {};
+    document.getElementById("app-version").textContent = `v${v.version || "?"} · ${v.commit || "?"}`;
+    document.getElementById("app-version").title = `${v.branch || ""} · Python ${v.python || "?"} · ${v.os || ""}\n${v.path || ""}`;
+  }).catch(() => {});
 }
 window.addEventListener("hashchange", () => { const t = location.hash.slice(1); if (t && t !== state.tab) show(t); });
 window.addEventListener("focus", () => refresh(10));

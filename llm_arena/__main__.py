@@ -18,7 +18,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--data-dir", default="data", help="projektek és beállítások mappája")
     ap.add_argument("--open", action="store_true", help="böngésző megnyitása indításkor")
+    ap.add_argument("--selftest", action="store_true", help="önellenőrzés futtatása a konzolon, majd kilépés")
     args = ap.parse_args(argv)
+
+    if args.selftest:
+        from . import selftest
+        from .project import ProjectStore
+        store = ProjectStore(args.data_dir)
+        rep = selftest.run(store.settings(), store.snapshot()["llms"], args.data_dir)
+        selftest.print_report(rep)
+        return 0 if not rep["failed"] else 2
 
     app = ArenaApp(args.data_dir)
     try:

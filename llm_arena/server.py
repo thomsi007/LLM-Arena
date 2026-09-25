@@ -164,7 +164,18 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------- config
     @route("GET", "/api/health")
     def api_health(self):
-        self._json({"ok": True, "time": time.time()})
+        from .selftest import version_info
+        self._json({"ok": True, "time": time.time(), "version": version_info()})
+
+    @route("POST", "/api/selftest")
+    def api_selftest(self):
+        from . import selftest
+        snap = self.app.store.snapshot()
+        rep = selftest.run(snap["settings"], snap["llms"], str(self.app.store.data_dir),
+                           quick=bool(self._body().get("quick")))
+        self.app.store.log("info" if not rep["failed"] else "warning",
+                           f"Önellenőrzés: {rep['passed']} rendben, {rep['failed']} hiba", source="diagnostics")
+        self._json({"ok": True, "report": rep})
 
     @route("GET", "/api/config")
     def api_config(self):

@@ -93,6 +93,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sidebar a:hover { background: var(--panel2); }
 .sidebar a.active { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); font-weight: 600; }
 .sidebar a .badge { margin-left: auto; }
+.nav-version { font-size: 11px; color: var(--muted); padding: 14px 10px 4px; font-family: var(--mono); }
 .nav-group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 12px 10px 4px; }
 main { flex: 1; min-width: 0; padding: 18px 22px 60px; }
 h1 { font-size: 20px; margin: 0 0 4px; }

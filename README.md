@@ -175,12 +175,20 @@ A Beállításokban a „🧭 Böngésző tesztelése” gomb megmutatja, melyik
   Nagy modelleknél a timeoutot is érdemes megemelni (a timeout a teljes kérésre vonatkozik).
 * A promptok angolok (a helyi modellek ezt követik legjobban), a válasz nyelve beállítható (alapértelmezés: magyar).
 
+## Ha valami nem működik: Diagnosztika
+
+A menü **🩺 Diagnosztika** pontja (vagy a konzolon `python -m llm_arena --selftest`) végigpróbálja a program minden
+funkcióját a saját gépeden – beépített próbamodellekkel, így a saját llama-serverektől függetlenül –, majd ellenőrzi
+a beállított LLM A / B kapcsolatot, a webes keresést és a böngészőt. Minden sorhoz pontos hibaüzenet és tipp tartozik;
+az „Eredmény másolása” gombbal elküldhető. Az oldalsáv alján látszik a futó verzió (commit), így ellenőrizhető,
+hogy a legfrissebb kód fut-e.
+
 ## Tesztek
 
 ```bash
 python3 -m unittest discover -s tests -t .
 ```
 
-98 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
+99 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
 újrapróbálás), parserek, sandbox (időtúllépés, importhiba), munkafolyamatok (aréna hibaizoláció, vita folytatása hiba
 után, teljes pipeline javító ciklussal), mentés/export/import, HTTP API + SSE.
