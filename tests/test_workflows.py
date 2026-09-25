@@ -212,6 +212,15 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertIn(b"LLM Ar", body)
 
+    def test_static_js_mime_type_ignores_system_registry(self):
+        import mimetypes
+        mimetypes.add_type("text/plain", ".js")  # what a broken Windows registry reports
+        try:
+            with self.opener.open(self.base + "/js/app.js", timeout=10) as resp:
+                self.assertTrue(resp.headers["Content-Type"].startswith("text/javascript"))
+        finally:
+            mimetypes.add_type("text/javascript", ".js")
+
 
 if __name__ == "__main__":
     unittest.main()

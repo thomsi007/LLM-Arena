@@ -116,6 +116,7 @@ try {
 
 // ------------------------------------------------------------------- boot
 async function boot() {
+  window.__arenaBooted = true;
   let tab = location.hash.slice(1);
   try { tab = tab || localStorage.getItem("arena.tab") || "arena"; } catch { tab = tab || "arena"; }
   state.tab = tab;

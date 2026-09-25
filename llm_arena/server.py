@@ -16,6 +16,18 @@ from urllib.parse import parse_qs, urlparse
 from .app import ArenaApp, ConflictError
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Explicit types: on Windows `mimetypes` reads the registry, which often maps
+# .js to text/plain – browsers then refuse to execute the ES modules.
+STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+}
 MAX_BODY = 50 * 1024 * 1024
 
 
@@ -81,6 +93,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         self._dispatch("GET")
 
+    def do_HEAD(self):  # noqa: N802
+        self._dispatch("GET")
+
     def do_POST(self):  # noqa: N802
         self._dispatch("POST")
 
@@ -125,9 +140,8 @@ class Handler(BaseHTTPRequestHandler):
         target = (STATIC_DIR / rel).resolve()
         if STATIC_DIR.resolve() not in target.parents and target != STATIC_DIR.resolve() or not target.is_file():
             raise ApiError(404, "Nem található")
-        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-        if ctype.startswith("text/") or ctype in ("application/javascript",):
-            ctype += "; charset=utf-8"
+        ctype = STATIC_TYPES.get(target.suffix.lower()) or mimetypes.guess_type(str(target))[0] \
+            or "application/octet-stream"
         self._send(200, target.read_bytes(), ctype)
 
     def _job(self, job) -> None:

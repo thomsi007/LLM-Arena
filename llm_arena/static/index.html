@@ -26,22 +26,42 @@
   <div class="layout">
     <nav class="sidebar" id="nav">
       <div class="nav-group">Konfiguráció</div>
-      <a data-tab="settings">⚙ <span>LLM beállítások</span></a>
+      <a href="#settings" data-tab="settings">⚙ <span>LLM beállítások</span></a>
       <div class="nav-group">Munkafolyamatok</div>
-      <a data-tab="arena">⚔ <span>Aréna</span></a>
-      <a data-tab="debate">🗣 <span>Vita</span></a>
-      <a data-tab="design">🧩 <span>Programtervezés</span></a>
-      <a data-tab="code">‹› <span>Kódnézet</span></a>
-      <a data-tab="testing">✔ <span>Tesztelés</span></a>
-      <a data-tab="consensus">⚖ <span>Közös döntés</span></a>
-      <a data-tab="pipeline">⇶ <span>Teljes folyamat</span></a>
+      <a href="#arena" data-tab="arena">⚔ <span>Aréna</span></a>
+      <a href="#debate" data-tab="debate">🗣 <span>Vita</span></a>
+      <a href="#design" data-tab="design">🧩 <span>Programtervezés</span></a>
+      <a href="#code" data-tab="code">‹› <span>Kódnézet</span></a>
+      <a href="#testing" data-tab="testing">✔ <span>Tesztelés</span></a>
+      <a href="#consensus" data-tab="consensus">⚖ <span>Közös döntés</span></a>
+      <a href="#pipeline" data-tab="pipeline">⇶ <span>Teljes folyamat</span></a>
       <div class="nav-group">Egyéb</div>
-      <a data-tab="log">☰ <span>Napló</span></a>
-      <a data-tab="project">💾 <span>Projekt</span></a>
+      <a href="#log" data-tab="log">☰ <span>Napló</span></a>
+      <a href="#project" data-tab="project">💾 <span>Projekt</span></a>
     </nav>
     <main id="main"></main>
   </div>
   <div id="toasts"></div>
+  <div id="boot-error" class="errbox" style="display:none;position:fixed;left:16px;right:16px;bottom:16px;z-index:100"></div>
+  <script>
+    // Visible diagnostics when the JS application cannot start.
+    (function () {
+      var box = document.getElementById("boot-error");
+      function show(msg) {
+        box.style.display = "block";
+        box.innerHTML = "<strong>A felület nem tudott elindulni.</strong> " + msg +
+          "<br><small>Tipp: a programot a <code>python -m llm_arena</code> paranccsal indítsd, és a kiírt " +
+          "http://127.0.0.1:8765 címet nyisd meg (ne az index.html fájlt közvetlenül). Frissíts Ctrl+F5-tel.</small>";
+      }
+      if (location.protocol === "file:") show("Az oldal fájlként (file://) nyílt meg.");
+      window.addEventListener("error", function (e) {
+        if (!window.__arenaBooted) show((e.message || "Szkript betöltési hiba") + (e.filename ? " (" + e.filename + ")" : ""));
+      }, true);
+      setTimeout(function () {
+        if (!window.__arenaBooted) show("A JavaScript modulok nem töltődtek be (lásd a böngésző konzolját: F12).");
+      }, 4000);
+    })();
+  </script>
   <script type="module" src="/js/app.js"></script>
 </body>
 </html>
