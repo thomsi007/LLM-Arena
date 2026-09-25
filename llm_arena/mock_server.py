@@ -232,12 +232,16 @@ class MockLlama:
                     self.wfile.write(raw)
                     return
                 text = "" if mode == "empty" else respond(body.get("messages", []), mock.name)
+                think = ""
+                if mode == "thinking" and (body.get("chat_template_kwargs") or {}).get("enable_thinking") is not False:
+                    think, text = "Let me think about this carefully...", ""
                 if mode == "model_error" and not body.get("stream"):
                     return self._json({"error": {"message": "context size exceeded"}})
                 if not body.get("stream"):
                     return self._json({
                         "model": mock.name,
-                        "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": text,
+                                                             "reasoning_content": think},
                                      "finish_reason": "stop"}],
                         "usage": {"prompt_tokens": 11, "completion_tokens": max(1, len(text) // 4),
                                   "total_tokens": 11 + max(1, len(text) // 4)},

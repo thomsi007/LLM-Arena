@@ -35,6 +35,7 @@ class LLMConfig:
     retries: int = 1             # extra attempts on transient errors
     context_chars: int = 16000   # rough prompt budget used when clipping context
     use_system_proxy: bool = False
+    disable_thinking: bool = False  # ask reasoning models (Qwen3, …) to skip the <think> phase
 
     @classmethod
     def from_dict(cls, data: dict | None, slot: str | None = None) -> "LLMConfig":
@@ -321,11 +322,20 @@ class LLMProvider(ABC):
             steps.append({"step": "models", "ok": False, "error": e.to_dict()})
         if probe_completion and ok:
             try:
-                r = self.chat([{"role": "user", "content": "Reply with the single word: pong"}],
-                              max_tokens=16, temperature=0.0, stream=False, retries=0)
+                # Generous token budget + thinking disabled: reasoning models otherwise
+                # spend a tiny budget on <think> and return an empty answer.
+                r = self.chat([{"role": "user", "content": "Reply with the single word: pong /no_think"}],
+                              max_tokens=512, temperature=0.0, stream=False, retries=0, disable_thinking=True)
                 steps.append({"step": "completion", "ok": True,
                               "info": f"{r.content.strip()[:60]!r} ({r.latency:.2f}s)"})
                 model = model or r.model
+            except EmptyResponse as e:
+                if e.detail == "reasoning_only":
+                    steps.append({"step": "completion", "ok": True,
+                                  "info": "a modell válaszolt, de csak gondolkodott (reasoning modell) – a kapcsolat működik"})
+                else:
+                    ok = False
+                    steps.append({"step": "completion", "ok": False, "error": e.to_dict()})
             except LLMError as e:
                 ok = False
                 steps.append({"step": "completion", "ok": False, "error": e.to_dict()})

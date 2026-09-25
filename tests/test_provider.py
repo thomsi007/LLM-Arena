@@ -135,6 +135,20 @@ class ProviderTest(unittest.TestCase):
             self.prov(timeout=30).chat([{"role": "user", "content": "x" * 400}], cancel=tok)
         self.assertLess(time.monotonic() - t0, 3)
 
+    def test_disable_thinking_sends_template_kwargs(self):
+        self.prov(disable_thinking=True).chat([{"role": "user", "content": "x"}])
+        self.assertEqual(self.mock.requests[-1]["chat_template_kwargs"], {"enable_thinking": False})
+        self.prov().chat([{"role": "user", "content": "x"}])
+        self.assertNotIn("chat_template_kwargs", self.mock.requests[-1])
+
+    def test_connection_check_with_reasoning_model(self):
+        self.mock.mode = "thinking"
+        res = self.prov().test_connection()  # probe disables thinking -> real answer
+        self.assertTrue(res["ok"], res)
+        with self.assertRaises(EmptyResponse) as cm:  # without it: reasoning only
+            self.prov(stream=False).chat([{"role": "user", "content": "x"}])
+        self.assertEqual(cm.exception.detail, "reasoning_only")
+
     def test_think_tags_are_split(self):
         from llm_arena.providers.openai_compat import split_thinking
         content, think = split_thinking("<think>plan</think>Answer")

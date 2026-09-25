@@ -33,6 +33,7 @@ function llmCard(slot) {
       <textarea rows="3" data-slot="${slot}" data-key="system_prompt" placeholder="pl. Tömören és pontosan válaszolj.">${esc(c.system_prompt)}</textarea></label>
     <div class="row">
       <label class="check"><input type="checkbox" data-slot="${slot}" data-key="stream" ${c.stream ? "checked" : ""}> Streaming</label>
+      <label class="check" title="chat_template_kwargs: enable_thinking=false – gyorsabb válasz Qwen3 és más gondolkodó modelleknél"><input type="checkbox" data-slot="${slot}" data-key="disable_thinking" ${c.disable_thinking ? "checked" : ""}> Gondolkodás kikapcsolása</label>
       <label class="check" title="A rendszer HTTP proxy beállításainak használata"><input type="checkbox" data-slot="${slot}" data-key="use_system_proxy" ${c.use_system_proxy ? "checked" : ""}> Rendszer proxy</label>
       <label class="field" style="max-width:190px"><span>Kontextus-keret (karakter)</span>
         <input type="number" min="2000" step="1000" data-slot="${slot}" data-key="context_chars" value="${c.context_chars}"></label>

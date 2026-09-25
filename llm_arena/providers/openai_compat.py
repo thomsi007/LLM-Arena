@@ -206,6 +206,8 @@ class OpenAICompatProvider(LLMProvider):
         model = self.resolve_model()
         if model:
             payload["model"] = model
+        if overrides.get("disable_thinking", cfg.disable_thinking) and overrides.get("_template_kwargs", True):
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         if stream and overrides.get("_stream_options", True):
             payload["stream_options"] = {"include_usage": True}
         if overrides.get("response_format"):
@@ -221,6 +223,10 @@ class OpenAICompatProvider(LLMProvider):
         try:
             resp = self._open("POST", "/v1/chat/completions", payload, timeout=timeout)
         except HTTPStatusError as e:
+            if e.status in (400, 422) and "chat_template_kwargs" in payload and \
+                    "chat_template_kwargs" in (e.message or "") + (e.detail or ""):
+                overrides = dict(overrides, _template_kwargs=False)
+                return self._chat_once(messages, on_token=on_token, cancel=cancel, **overrides)
             if stream and e.status == 400 and "stream_options" in (e.message or ""):
                 overrides = dict(overrides, _stream_options=False)
                 return self._chat_once(messages, on_token=on_token, cancel=cancel, **overrides)
@@ -363,7 +369,8 @@ class OpenAICompatProvider(LLMProvider):
             res.model = payload.get("model", "") or "ismeretlen"
         if not res.content.strip():
             hint = " (a modell csak gondolkodott – növeld a max token értéket)" if res.reasoning else ""
-            raise EmptyResponse(f"A modell üres választ adott{hint}.")
+            raise EmptyResponse(f"A modell üres választ adott{hint}.",
+                                detail="reasoning_only" if res.reasoning else None)
         if res.completion_tokens is None:
             res.completion_tokens = max(1, len(res.content + res.reasoning) // 4)
             res.tokens_estimated = True

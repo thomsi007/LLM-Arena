@@ -102,7 +102,10 @@ JSON-válasz esetén a rendszer egyszer javítást kér a modelltől.
 ### Tippek helyi modellekhez
 
 * Kis kontextusú modelleknél csökkentsd a „Kontextus-keret” értéket (a rendszer ehhez vágja a promptokat).
-* Gondolkodó (reasoning) modelleknél növeld a max tokent; a `<think>` blokk külön jelenik meg.
+* Gondolkodó (reasoning) modelleknél (pl. Qwen3) növeld a max tokent, vagy kapcsold be a „Gondolkodás kikapcsolása”
+  opciót (`chat_template_kwargs: {"enable_thinking": false}` – llama-server támogatja; ha a szerver elutasítja,
+  a kérés automatikusan nélküle megy újra). A `<think>` / `reasoning_content` külön, lenyitható blokkban jelenik meg.
+  Nagy modelleknél a timeoutot is érdemes megemelni (a timeout a teljes kérésre vonatkozik).
 * A promptok angolok (a helyi modellek ezt követik legjobban), a válasz nyelve beállítható (alapértelmezés: magyar).
 
 ## Tesztek
