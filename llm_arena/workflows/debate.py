@@ -13,6 +13,7 @@ import uuid
 
 from .. import prompts
 from ..textutil import as_list, as_str_list, bullet, clip, extract_json, remove_json_blocks
+from ..errors import describe_exception
 from .common import StepFailed, WorkflowContext, other
 
 ROLES = {"A": "proponent", "B": "critic"}
@@ -22,8 +23,9 @@ PHASE_HU = {"position": "Álláspont", "critique": "Kritika", "rebuttal": "Vála
 LEDGER_KEYS = ("claims", "objections", "concessions", "questions", "proposals")
 
 
-def new_debate(topic: str, rounds: int, moderator: str) -> dict:
+def new_debate(topic: str, rounds: int, moderator: str, attachments: list[str] | None = None) -> dict:
     return {
+        "attachments": list(attachments or []),
         "id": uuid.uuid4().hex[:10], "topic": topic.strip(), "rounds": max(1, min(int(rounds), 8)),
         "moderator": moderator, "status": "running", "created": time.time(), "error": None,
         "turns": [], "ledger": {k: [] for k in LEDGER_KEYS}, "synthesis": None, "synthesis_review": None,
@@ -83,14 +85,14 @@ def _record_turn(ctx: WorkflowContext, debate: dict, turn: dict, msg: dict) -> N
 
 
 def run_debate(ctx: WorkflowContext, *, topic: str | None = None, rounds: int | None = None,
-               resume: bool = False) -> dict:
+               resume: bool = False, attachments: list[str] | None = None) -> dict:
     settings = ctx.settings
     with ctx.store.mutate() as p:
         if not resume or not p.get("debate") or not p["debate"].get("topic"):
             if not (topic or "").strip():
                 raise ValueError("Adj meg vitatémát.")
             p["debate"] = new_debate(topic, rounds or settings.get("debate_rounds", 2),
-                                     settings.get("moderator", "A"))
+                                     settings.get("moderator", "A"), attachments)
             if not p["task"]:
                 p["task"] = topic.strip()
         debate = p["debate"]
@@ -113,9 +115,15 @@ def run_debate(ctx: WorkflowContext, *, topic: str | None = None, rounds: int | 
             with ctx.store.mutate():
                 debate["turns"].append(turn)
             instruction = ctx.fmt(prompts.DEBATE_PHASES[phase], round=rnd)
-            user = ctx.fmt(prompts.DEBATE_TURN, topic=ctx.clip_for(slot, debate["topic"], 0.2),
+            files = ctx.files_text(slot, debate.get("attachments"), 0.25)
+            user = ctx.fmt(prompts.DEBATE_TURN, topic=ctx.clip_for(slot, debate["topic"], 0.2)
+                           + (f"\n\n{files}" if files else ""),
                            state=_state_text(debate), transcript=_transcript(ctx, debate, slot),
                            instruction=instruction)
+            if rnd == 1 and debate.get("attachments"):
+                # First round: send attached images as well (multimodal models).
+                user = ctx.with_files(slot, user, [i for i in debate["attachments"]
+                                                   if (ctx.attachments([i]) or [{}])[0].get("kind") == "image"])
             system = ctx.fmt(prompts.DEBATE_PROPONENT if slot == "A" else prompts.DEBATE_CRITIC)
 
             def attach(msg: dict, turn: dict = turn) -> None:
@@ -140,7 +148,7 @@ def run_debate(ctx: WorkflowContext, *, topic: str | None = None, rounds: int | 
     except BaseException as e:
         with ctx.store.mutate():
             debate["status"] = "cancelled" if ctx.job.cancel_token.is_set() else "error"
-            debate["error"] = getattr(e, "error", None) or {"message": str(e)}
+            debate["error"] = describe_exception(e)
         ctx.state_changed("debate")
         raise
 

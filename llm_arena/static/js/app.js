@@ -1,7 +1,7 @@
 // App shell: navigation, top bar (connection pills, running jobs), global actions.
 import { api } from "./api.js";
 import { state, subscribe, refresh, trackJob, onToken } from "./state.js";
-import { esc, toast, copyText, updateLive } from "./ui.js";
+import { esc, toast, copyText, updateLive, showError, errorBox } from "./ui.js";
 import settings from "./views/settings.js";
 import arena from "./views/arena.js";
 import debate from "./views/debate.js";
@@ -52,7 +52,7 @@ document.addEventListener("click", (e) => {
   }
   const cj = e.target.closest("[data-cancel-job]");
   if (cj) {
-    api.cancel(cj.dataset.cancelJob).then(() => toast("Megszakítás kérve", "warn")).catch((err) => toast(err.message, "error"));
+    api.cancel(cj.dataset.cancelJob).then(() => toast("Megszakítás kérve", "warn")).catch((err) => showError(err, "Megszakítás"));
   }
 });
 
@@ -89,6 +89,11 @@ export async function probeConnections() {
 
 let lastReason = 0;
 subscribe((reason) => {
+  if (reason.startsWith("job_end:")) {
+    const job = state.jobs.get(reason.slice(8));
+    if (job?.status === "error") showError(job.error || { label: "Ismeretlen hiba" }, job.title);
+    else if (job?.status === "done") toast(`Kész: ${job.title}`, "ok", 2500);
+  }
   renderTop();
   if (!current) return;
   // Throttle "jobs" (progress) updates for views.
@@ -115,6 +120,13 @@ try {
 } catch { applyTheme("dark"); }
 
 // ------------------------------------------------------------------- boot
+window.addEventListener("error", (e) => {
+  if (window.__arenaBooted) showError({ label: "Hiba a felületen", message: e.message, detail: `${e.filename}:${e.lineno}\n${e.error?.stack || ""}`, hint: "Frissítsd az oldalt (Ctrl+F5). Ha ismétlődik, küldd el a részleteket." });
+});
+window.addEventListener("unhandledrejection", (e) => {
+  if (window.__arenaBooted) showError(e.reason, "Váratlan hiba");
+});
+
 async function boot() {
   window.__arenaBooted = true;
   let tab = location.hash.slice(1);
@@ -125,7 +137,7 @@ async function boot() {
     state.project = data.project;
     for (const j of data.jobs) trackJob(j);
   } catch (e) {
-    main.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    main.innerHTML = errorBox(e, "Betöltés");
     return;
   }
   renderTop();

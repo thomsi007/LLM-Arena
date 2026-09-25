@@ -1,7 +1,7 @@
 // Arena: same prompt to both models, side by side, multi-round.
 import { api } from "../api.js";
 import { state, trackJob, messageById, runningJobs } from "../state.js";
-import { esc, toast, messageCard, runningBanner, fmtTime, fmtSec, exportHtmlBtn } from "../ui.js";
+import { esc, toast, messageCard, runningBanner, fmtTime, fmtSec, exportHtmlBtn, showError, errorBox, attachBox, bindAttach, draftIds, setDraft, attachmentList } from "../ui.js";
 
 let root;
 
@@ -17,7 +17,7 @@ function roundHtml(r) {
   const busy = runningJobs().length > 0;
   return `<div class="round">
     <div class="round-head"><span class="badge">${r.round}. kör${r.kind === "analysis" ? " · elemzés" : ""}</span>
-      <div class="prompt">${esc(r.prompt)}</div></div>
+      <div class="prompt">${esc(r.prompt)}${attachmentList(r.attachments)}</div></div>
     <div class="versus">
       ${messageCard(a || null, { slot: "A", placeholder: "Nincs válasz", retry: { action: "retry", round: r.round } })}
       ${messageCard(b || null, { slot: "B", placeholder: "Nincs válasz", retry: { action: "retry", round: r.round } })}
@@ -31,12 +31,16 @@ function roundHtml(r) {
 async function send() {
   const ta = root.querySelector("#arena-prompt");
   const prompt = ta.value.trim();
-  if (!prompt) { toast("Írj be egy feladatot vagy kérdést.", "warn"); return; }
+  const files = draftIds("arena");
+  if (!prompt && !files.length) { toast("Írj be egy feladatot vagy kérdést, vagy csatolj fájlt.", "warn"); return; }
+  if ((state.drafts.arena || []).some((a) => a.uploading)) { toast("Várd meg, amíg a fájlok feltöltődnek.", "warn"); return; }
   try {
-    const r = await api.arena(prompt, root.querySelector("#arena-multi").checked);
+    const r = await api.arena(prompt, root.querySelector("#arena-multi").checked, files);
     trackJob(r.job);
     ta.value = "";
-  } catch (e) { toast(e.message, "error"); }
+    state.drafts.arena = [];
+    bindAttach(root, "arena");
+  } catch (e) { showError(e, "Aréna"); }
 }
 
 export default {
@@ -47,6 +51,7 @@ export default {
       <div class="card">
         <label class="field"><span>Feladat / kérdés (Ctrl+Enter = küldés)</span>
           <textarea id="arena-prompt" rows="4" placeholder="pl. Hasonlítsd össze a REST és a gRPC előnyeit egy belső mikroszolgáltatás-rendszerben."></textarea></label>
+        ${attachBox("arena")}
         <div class="row">
           <label class="check"><input type="checkbox" id="arena-multi" checked> Több körös (előzmények megtartása)</label>
           <span class="spacer"></span>
@@ -60,6 +65,7 @@ export default {
       <div id="arena-banner"></div>
       <div id="arena-rounds"></div>`;
     root.querySelector("#arena-send").onclick = send;
+    bindAttach(root, "arena");
     root.querySelector("#arena-prompt").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); }
     });
@@ -81,7 +87,7 @@ export default {
           trackJob(r.job);
           toast("Közös döntés elindítva – eredmény a „Közös döntés” fülön.", "ok");
         }
-      } catch (err) { toast(err.message, "error"); }
+      } catch (err) { showError(err, "Aréna"); }
     });
   },
   update(reason) {

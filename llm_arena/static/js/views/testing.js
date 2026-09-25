@@ -1,7 +1,7 @@
 // Automatic testing: generate → run → analyse → fix loop, with results.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs, refresh } from "../state.js";
-import { esc, toast, runningBanner, statusBadge, fmtDate, messageCard, lastFinishedError, slotBadge, exportHtmlBtn } from "../ui.js";
+import { esc, toast, runningBanner, statusBadge, fmtDate, messageCard, lastFinishedError, slotBadge, exportHtmlBtn, showError, errorBox, pickCodeFiles } from "../ui.js";
 
 let root;
 let showTb = new Set();
@@ -9,7 +9,9 @@ const CAT = { unit: "Unit", integration: "Integrációs", edge_case: "Edge-case"
 
 function testsTable(run) {
   if (!run) return '<div class="empty">Még nem futottak tesztek.</div>';
-  if (!run.tests.length) return `<div class="errbox">${esc(run.error || "Nincs teszteredmény.")}</div>${run.stderr ? `<pre class="tb">${esc(run.stderr)}</pre>` : ""}`;
+  if (!run.tests.length) return errorBox({ label: "A tesztek nem futottak le", message: run.error || "Nincs teszteredmény.",
+    hint: run.timed_out ? "Időtúllépés – növeld a Teszt timeout értékét, vagy ellenőrizd, nincs-e végtelen ciklus a kódban."
+      : "Nézd meg a Részleteket (stderr): gyakran importhiba vagy hiányzó csomag a generált kódban.", detail: run.stderr });
   return `<table class="tbl"><thead><tr><th>Állapot</th><th>Kategória</th><th>Teszt</th><th>Fájl</th><th>Idő</th><th>Üzenet</th></tr></thead><tbody>
     ${run.tests.map((t) => `<tr class="clickable" data-tb="${esc(t.id)}"><td>${statusBadge(t.status)}</td><td>${esc(CAT[t.category] || t.category)}</td>
       <td class="mono">${esc(t.id)}</td><td class="mono">${esc(t.file)}</td><td>${t.duration != null ? (t.duration * 1000).toFixed(0) + " ms" : "–"}</td>
@@ -36,7 +38,7 @@ async function start(action) {
   try {
     const body = action === "loop" ? { max_iterations: +root.querySelector("#t-iter").value } : {};
     trackJob((await api.testing(action, body)).job);
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) { showError(e, "Tesztelés"); }
 }
 
 export default {
@@ -49,12 +51,14 @@ export default {
         <label class="field" style="max-width:180px"><span>Max. javító iteráció</span><input type="number" id="t-iter" min="0" max="10" value="${state.project.settings.max_fix_iterations}"></label>
         <span class="spacer"></span>
         ${exportHtmlBtn("testing")}
+        <button class="btn" id="t-upload" title="Saját unittest / pytest-stílusú tesztfájlok hozzáadása">⤒ Tesztfájl feltöltése</button>
         <button class="btn" data-t="generate">🧪 Tesztek generálása</button>
         <button class="btn" data-t="run">▶ Tesztek futtatása</button>
         <button class="btn primary" data-t="loop">⟳ Teszt → javítás ciklus</button>
       </div></div>
       <div id="t-banner"></div><div id="t-body"></div>`;
     root.addEventListener("click", async (e) => {
+      if (e.target.id === "t-upload") { pickCodeFiles(() => refresh(10), { tests: true }); return; }
       const b = e.target.closest("[data-t]");
       if (b) { start(b.dataset.t); return; }
       if (e.target.id === "t-enable") {

@@ -1,7 +1,7 @@
 // Code view: files, versions, diffs, manual edit, download.
 import { api } from "../api.js";
 import { state, refresh } from "../state.js";
-import { esc, toast, copyText, download, fmtDate, exportHtmlBtn } from "../ui.js";
+import { esc, toast, copyText, download, fmtDate, exportHtmlBtn, showError, errorBox, pickCodeFiles } from "../ui.js";
 
 let root;
 let selected = null;
@@ -53,6 +53,7 @@ function render() {
       <button class="btn" id="code-dl-file" ${selected ? "" : "disabled"}>⤓ Fájl</button>
       <a class="btn" href="/api/code/download${version ? "?version=" + version : ""}" ${names.length ? "" : 'style="pointer-events:none;opacity:.45"'}>⤓ ZIP</a>
       ${names.length ? exportHtmlBtn("code", "⤓ HTML") : ""}
+      <button class="btn" id="code-upload" ${version ? "disabled" : ""} title="Saját forrásfájlok hozzáadása a projekthez">⤒ Feltöltés</button>
       <button class="btn" id="code-new" ${version ? "disabled" : ""}>+ Új fájl</button>
       <button class="btn" id="code-edit-btn" ${selected && !version ? "" : "disabled"}>✎ Szerkesztés</button>
       <button class="btn danger" id="code-del" ${selected && !version ? "" : "disabled"}>Törlés</button>
@@ -79,6 +80,7 @@ export default {
       const f = files();
       if (id === "code-copy") copyText(f[selected] || "");
       else if (id === "code-dl-file") download(selected.split("/").pop(), f[selected] || "", "text/x-python");
+      else if (id === "code-upload") pickCodeFiles(() => refresh(10));
       else if (id === "code-diff") { showDiff = !showDiff; editing = false; render(); }
       else if (id === "code-edit-btn") { editing = true; showDiff = false; render(); }
       else if (id === "code-cancel") { editing = false; render(); }
@@ -89,7 +91,7 @@ export default {
           toast(`Mentve: v${r.version}`, "ok");
           editing = false;
           refresh(10);
-        } catch (err) { toast(err.message, "error"); }
+        } catch (err) { showError(err, "Kódnézet"); }
       } else if (id === "code-new") {
         const name = prompt("Új fájl neve (pl. utils.py vagy test_extra.py):");
         if (!name) return;
@@ -98,10 +100,10 @@ export default {
           state.project.code.files[name] = "";
           selected = name; editing = true; showDiff = false; version = null;
           render(); refresh(10);
-        } catch (err) { toast(err.message, "error"); }
+        } catch (err) { showError(err, "Kódnézet"); }
       } else if (id === "code-del") {
         if (!confirm(`Törlöd: ${selected}?`)) return;
-        try { await api.editCode({}, [selected], `Törölve: ${selected}`); selected = null; refresh(10); } catch (err) { toast(err.message, "error"); }
+        try { await api.editCode({}, [selected], `Törölve: ${selected}`); selected = null; refresh(10); } catch (err) { showError(err, "Kódnézet"); }
       }
     });
     root.addEventListener("change", (e) => {

@@ -47,6 +47,7 @@ python3 -m llm_arena
 | **Tesztelés** | Fejlesztő: unit + integrációs; reviewer: edge-case, hibakezelési, teljesítménytesztek. Bukásnál mindkét modell elemzi a hibát, a fejlesztő javít (kódot, vagy ha a teszt hibás, a tesztet), újrafuttatás – max. iterációig. Kimutatás: sikeres/sikertelen tesztek, javított hibák, fennmaradó problémák, végleges kód. |
 | **Közös döntés** | Nem győztes–vesztes: mindkét modell mindkét *anonimizált* megoldást pontozza (helyesség, teljesség, megvalósíthatóság, biztonság, teljesítmény, tesztelhetőség), szempontonkénti átlagok, erősségek/gyengeségek, átvett legjobb ötletek, majd **közösen összeállított megoldás**, amit a másik modell ellenőriz. |
 | **Teljes folyamat** | A fenti lépések automatikusan egymás után, folytatható állapottal, végleges jelentéssel. |
+| **Fájlcsatolás** | Az Aréna, Vita, Programtervezés és Teljes folyamat bemenetéhez fájlok csatolhatók (gomb, húzd-és-ejtsd, vagy beillesztés). Szöveg / forráskód / JSON / CSV / HTML / Markdown, DOCX, XLSX, PPTX, ODT/ODS, PDF (opcionális `pypdf` csomaggal), képek (multimodális modellnek `image_url`-ként). A Kódnézetben és a Tesztelésben saját forrás- és tesztfájlok tölthetők fel. A csatolmányok a projekttel együtt mentődnek/exportálódnak; a Projekt fülön kezelhetők. |
 | **Webes eszközök** | A modellek szükség esetén élő információt kereshetnek a weben (`web_search`) és elolvashatnak oldalakat (`fetch_url`) – maguk döntik el, mikor kell. Aktív: Aréna, Vita, elemzés, tervezési lépések. Keresőmotor: DuckDuckGo (kulcs nélkül), saját SearXNG vagy Brave Search API. Minden keresés és forrás látszik a válaszkártyán és az exportban. |
 | **HTML export** | Minden fontos fülön „⤓ HTML export” gomb (Aréna, Vita, Programtervezés, Kód, Tesztelés, Közös döntés, Teljes folyamat), a Projekt fülön teljes riport. Önálló, modern, jól olvasható HTML fájl: beágyazott stílus, világos/sötét téma automatikusan, nyomtatható PDF-be; a modellválaszok biztonságosan escape-elve. |
 | **Napló** | Minden hívás, hiba, újrapróbálás, teszteredmény; szűrés, letöltés. |
@@ -101,6 +102,14 @@ Endpoint elérhetetlen, timeout (teljes kérésre is), hibás JSON, HTTP hibák 
 az Arénában a másik modell válasza megmarad, a vita/tervezés/pipeline állapota mentődik és folytatható. Hibás
 JSON-válasz esetén a rendszer egyszer javítást kér a modelltől.
 
+### Hibaüzenetek
+
+Minden hiba egységes, érthető formában jelenik meg: **mi történt** (cím), **miért** (konkrét ok),
+**mit tehetsz** (💡 tipp – pl. „ellenőrizd, fut-e a llama-server a megadott porton”, „növeld a timeoutot”,
+„a modell nem multimodális”), valamint lenyitható **Részletek** (szerverválasz, HTTP-státusz, traceback) és
+**Másolás** gomb a hibajelentéshez. A felugró hibák addig maradnak, amíg be nem zárod; a munkafolyamatok
+hibái a fülön is megmaradnak, a „Folytatás / újrapróbálás” gombbal az elakadt lépéstől folytathatók.
+
 ### Webes keresés
 
 * **Natív tool-hívás** (OpenAI `tools`): a llama-servert `--jinja` kapcsolóval indítsd. Ha a szerver elutasítja a
@@ -129,6 +138,6 @@ JSON-válasz esetén a rendszer egyszer javítást kér a modelltől.
 python3 -m unittest discover -s tests -t .
 ```
 
-61 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
+74 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
 újrapróbálás), parserek, sandbox (időtúllépés, importhiba), munkafolyamatok (aréna hibaizoláció, vita folytatása hiba
 után, teljes pipeline javító ciklussal), mentés/export/import, HTTP API + SSE.

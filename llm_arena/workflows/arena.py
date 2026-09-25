@@ -20,7 +20,10 @@ def _history(ctx: WorkflowContext, slot: str, upto_round: int) -> list[dict]:
         m = msgs.get(rnd["responses"].get(slot) or "")
         if not m or m.get("status") != "done":
             continue
-        history += [{"role": "user", "content": rnd["prompt"]},
+        user_text = rnd["prompt"]
+        if rnd.get("attachments"):
+            user_text = ctx.with_files(slot, user_text, rnd["attachments"], share=0.25, images=False)
+        history += [{"role": "user", "content": user_text},
                     {"role": "assistant", "content": m["content"]}]
     # Keep the most recent turns inside the prompt budget.
     budget = ctx.budget(slot, 0.7)
@@ -29,33 +32,37 @@ def _history(ctx: WorkflowContext, slot: str, upto_round: int) -> list[dict]:
     return history
 
 
-def _ask(ctx: WorkflowContext, round_no: int, slot: str, prompt: str, multi_turn: bool) -> dict:
+def _ask(ctx: WorkflowContext, round_no: int, slot: str, prompt: str, multi_turn: bool,
+         files: list[str] | None = None) -> dict:
     history = _history(ctx, slot, round_no) if multi_turn else []
+    content = ctx.with_files(slot, prompt, files, share=0.45) if files else prompt
 
     def attach(msg: dict) -> None:
         for rnd in ctx.store.project["arena"]["rounds"]:
             if rnd["round"] == round_no:
                 rnd["responses"][slot] = msg["id"]
 
-    return ctx.call(slot, history + [{"role": "user", "content": prompt}], role="contestant",
+    return ctx.call(slot, history + [{"role": "user", "content": content}], role="contestant",
                     stage="arena", round=round_no, title=f"Aréna {round_no}. kör",
                     system=ctx.fmt(prompts.ARENA_SYSTEM), on_created=attach, tools=True)
 
 
 def run_arena(ctx: WorkflowContext, prompt: str, *, multi_turn: bool = True,
-              slots: tuple[str, ...] = SLOTS, kind: str = "arena") -> dict:
+              slots: tuple[str, ...] = SLOTS, kind: str = "arena", attachments: list[str] | None = None) -> dict:
     prompt = prompt.strip()
     if not prompt:
         raise ValueError("Üres feladat.")
     with ctx.store.mutate() as p:
         round_no = len(p["arena"]["rounds"]) + 1
         p["arena"]["rounds"].append({"round": round_no, "prompt": prompt, "created": time.time(),
-                                     "kind": kind, "multi_turn": multi_turn, "responses": {}})
+                                     "kind": kind, "multi_turn": multi_turn, "responses": {},
+                                     "attachments": list(attachments or [])})
         if not p["task"]:
             p["task"] = prompt
     ctx.state_changed("arena")
     ctx.progress(0.05, f"Aréna {round_no}. kör – {' és '.join(slots)} dolgozik")
-    results = ctx.parallel({s: (lambda s=s: _ask(ctx, round_no, s, prompt, multi_turn)) for s in slots})
+    results = ctx.parallel({s: (lambda s=s: _ask(ctx, round_no, s, prompt, multi_turn, attachments))
+                            for s in slots})
     errors = {s: e for s, (_, e) in results.items() if e is not None}
     for s, e in errors.items():
         if not isinstance(e, (StepFailed, Cancelled)):
@@ -73,7 +80,7 @@ def retry_slot(ctx: WorkflowContext, round_no: int, slot: str) -> dict:
         raise ValueError(f"Nincs {round_no}. kör.")
     ctx.progress(0.1, f"Újrapróbálás: LLM {slot}, {round_no}. kör")
     try:
-        _ask(ctx, round_no, slot, rnd["prompt"], rnd.get("multi_turn", True))
+        _ask(ctx, round_no, slot, rnd["prompt"], rnd.get("multi_turn", True), rnd.get("attachments"))
     finally:
         ctx.state_changed("arena")
     return {"round": round_no, "slot": slot}

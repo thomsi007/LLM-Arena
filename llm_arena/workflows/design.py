@@ -13,6 +13,7 @@ import uuid
 from .. import prompts
 from ..textutil import as_list, clip, extract_files, extract_json, is_test_file, remove_json_blocks, safe_path
 from . import testing
+from ..errors import describe_exception
 from .common import StepFailed, WorkflowContext, other
 from .consensus import run_consensus
 
@@ -23,8 +24,9 @@ FIX_SEVERITIES = ("critical", "high", "medium")
 WEB_STAGES = {"requirements", "missing_requirements", "architecture", "modules", "algorithms", "design_review"}
 
 
-def new_design(requirements: str, developer: str) -> dict:
+def new_design(requirements: str, developer: str, attachments: list[str] | None = None) -> dict:
     return {
+        "attachments": list(attachments or []),
         "id": uuid.uuid4().hex[:10], "requirements": requirements.strip(), "developer": developer,
         "reviewer": other(developer), "status": "running", "created": time.time(), "error": None,
         "order": STAGE_KEYS,
@@ -76,13 +78,14 @@ def _normalize_issues(data) -> list[dict]:
 
 
 def run_design(ctx: WorkflowContext, *, requirements: str | None = None, developer: str | None = None,
-               resume: bool = False, run_tests: bool = True, stages: list[str] | None = None) -> dict:
+               resume: bool = False, run_tests: bool = True, stages: list[str] | None = None,
+               attachments: list[str] | None = None) -> dict:
     settings = ctx.settings
     with ctx.store.mutate() as p:
         if not resume or not p.get("design") or not p["design"].get("requirements"):
             if not (requirements or "").strip():
                 raise ValueError("Adj meg követelményeket / feladatleírást.")
-            p["design"] = new_design(requirements, developer or settings.get("developer", "A"))
+            p["design"] = new_design(requirements, developer or settings.get("developer", "A"), attachments)
             if not p["task"]:
                 p["task"] = requirements.strip()
         design = p["design"]
@@ -119,7 +122,7 @@ def run_design(ctx: WorkflowContext, *, requirements: str | None = None, develop
     except BaseException as e:
         with ctx.store.mutate():
             design["status"] = "cancelled" if ctx.job.cancel_token.is_set() else "error"
-            design["error"] = getattr(e, "error", None) or {"message": str(e)}
+            design["error"] = describe_exception(e)
             for st in design["stages"].values():
                 if st["status"] == "running":
                     st["status"] = design["status"]
@@ -132,7 +135,9 @@ def _stage_prompt(ctx: WorkflowContext, design: dict, key: str, slot: str, templ
     tpl = template or next(s[3] for s in STAGES if s[0] == key)
     budget = ctx.budget(slot, 0.8)
     files = ctx.store.snapshot()["code"]["files"]
-    return ctx.fmt(tpl, requirements=ctx.clip_for(slot, design["requirements"], 0.2),
+    files = ctx.files_text(slot, design.get("attachments"), 0.25)
+    reqs = ctx.clip_for(slot, design["requirements"], 0.2) + (f"\n\n{files}" if files else "")
+    return ctx.fmt(tpl, requirements=reqs,
                    code=testing.code_listing(files, ctx.budget(slot, 0.55), tests=False),
                    review_issues=_issues_text([i for i in design["review_issues"] if i["status"] == "open"]),
                    code_rules=ctx.fmt(prompts.CODE_RULES), **_prev(design, budget))

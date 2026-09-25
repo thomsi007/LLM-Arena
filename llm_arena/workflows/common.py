@@ -3,6 +3,7 @@ recording structured messages, JSON answers with repair, parallel calls."""
 
 from __future__ import annotations
 
+import re
 import string
 import threading
 import time
@@ -14,6 +15,7 @@ from ..project import ProjectStore
 from ..providers import (
     Cancelled, LLMError, create_provider, fill_message, new_message,
 )
+from .. import attachments as att_mod
 from .. import tools as tool_mod
 from ..providers import EmptyResponse, ToolsUnsupported
 from ..textutil import clip, extract_json
@@ -78,6 +80,21 @@ class WorkflowContext:
     def budget(self, slot: str, share: float = 1.0) -> int:
         return int(self.store.llm_config(slot).context_chars * share)
 
+    def attachments(self, ids: list[str] | None) -> list[dict]:
+        return self.store.get_attachments(ids, strict=False)
+
+    def with_files(self, slot: str, text: str, ids: list[str] | None, share: float = 0.4,
+                   images: bool = True):
+        """``text`` + attached files (clipped to the model's budget); multimodal when images present."""
+        recs = self.attachments(ids)
+        if not recs:
+            return text
+        return att_mod.with_attachments(text, recs, self.budget(slot, share), images=images)
+
+    def files_text(self, slot: str, ids: list[str] | None, share: float = 0.3) -> str:
+        recs = self.attachments(ids)
+        return att_mod.context_block(recs, self.budget(slot, share)) if recs else ""
+
     def clip_for(self, slot: str, text: str, share: float = 0.5) -> str:
         return clip(text, self.budget(slot, share))
 
@@ -137,7 +154,7 @@ class WorkflowContext:
         messages = build(text_mode)
         msg = new_message(slot=slot, model=cfg.model if not cfg.wants_autodetect else "",
                           role=role, workflow=self.workflow, stage=stage, round=round, title=title)
-        msg["prompt"] = clip(messages[-1]["content"], 6000)
+        msg["prompt"] = clip(content_text(messages[-1]["content"]), 6000)
         msg["tool_calls"] = []
         with self.store.mutate() as p:
             p["messages"].append(msg)
@@ -259,6 +276,11 @@ class WorkflowContext:
         except LLMError as e:
             flush()
             err = e.to_dict()
+            if any(isinstance(m.get("content"), list) for m in messages) and re.search(
+                    r"image|multimodal|mmproj|vision|image_url", f"{err.get('message')} {err.get('detail')}", re.I):
+                err["label"] = "A modell nem tud képet feldolgozni"
+                err["hint"] = ("A csatolt kép miatt hibázott: ez a modell / szerver nem multimodális. Indítsd a "
+                               "llama-servert --mmproj fájllal (képet értő modellel), vagy távolítsd el a képet.")
             with self.store.mutate():
                 msg.update(status="error", error=err, content=e.partial or "")
             self.job.emit("msg_error", msg_id=msg["id"], error=err)
@@ -315,6 +337,13 @@ class WorkflowContext:
         if any(isinstance(e, Cancelled) for _, e in results.values()) or self.job.cancel_token.is_set():
             raise Cancelled("A műveletet a felhasználó megszakította.")
         return results
+
+
+def content_text(content) -> str:
+    """Text of a chat message content (plain string or multimodal parts)."""
+    if isinstance(content, list):
+        return "\n".join(p.get("text", "[kép]") if isinstance(p, dict) else str(p) for p in content)
+    return content or ""
 
 
 def message_text(store: ProjectStore, msg_id: str | None) -> str:

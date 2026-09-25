@@ -99,10 +99,12 @@ class LLMError(Exception):
         self.partial = partial
 
     def to_dict(self) -> dict:
+        from ..errors import hint_for
         return {
             "kind": self.kind,
             "label": self.label,
             "message": self.message,
+            "hint": hint_for(self.kind, self.status),
             "status": self.status,
             "detail": (self.detail or "")[:2000] or None,
             "retryable": self.retryable,

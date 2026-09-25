@@ -185,6 +185,29 @@ a.btn { text-decoration: none; color: inherit; }
 .versus { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
 @media (max-width: 900px) { .versus { grid-template-columns: 1fr; } }
 
+/* ---------- errors ---------- */
+.errbox .err-title, .toast .err-title { font-weight: 700; }
+.err-msg { margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+.err-hint { margin-top: 6px; padding: 6px 9px; border-radius: 6px; background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.err-details { margin-top: 6px; font-size: 12px; }
+.err-details summary { cursor: pointer; color: var(--muted); }
+.err-details pre { white-space: pre-wrap; max-height: 260px; overflow: auto; font-family: var(--mono); font-size: 11.5px; background: var(--code-bg); padding: 6px; border-radius: 6px; }
+.toast.persistent { position: relative; max-width: 520px; padding-right: 30px; }
+.toast-close { position: absolute; top: 4px; right: 6px; background: none; border: none; font-size: 18px; cursor: pointer; color: var(--muted); }
+
+/* ---------- attachments ---------- */
+.attach { margin: 6px 0 10px; }
+.att-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.att-chips, .att-list { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.att-list { margin: 0 0 8px; font-size: 12.5px; align-items: center; }
+.att-chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border); background: var(--panel2); border-radius: 7px; padding: 2px 4px 2px 8px; font-size: 12.5px; max-width: 360px; }
+.att-chip a { color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-chip.uploading { opacity: .7; }
+.att-chip.missing { color: var(--muted); font-style: italic; }
+.att-x { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 15px; line-height: 1; padding: 0 4px; }
+.att-x:hover { color: var(--err); }
+.card.dropping { outline: 2px dashed var(--accent); outline-offset: 3px; }
+
 /* ---------- web tools ---------- */
 details.tools { margin: 0 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); padding: 6px 10px; font-size: 12.5px; }
 details.tools summary { cursor: pointer; color: var(--muted); }

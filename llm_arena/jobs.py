@@ -8,7 +8,8 @@ import traceback
 import uuid
 from typing import Callable, Optional
 
-from .providers.base import Cancelled, CancelToken, LLMError
+from .errors import describe_exception
+from .providers.base import Cancelled, CancelToken
 
 TERMINAL = ("done", "error", "cancelled")
 
@@ -92,13 +93,10 @@ class JobManager:
                 job.status = "cancelled" if job.cancel_token.is_set() else "done"
             except Cancelled:
                 job.status = "cancelled"
-            except LLMError as e:
+            except BaseException as e:  # noqa: BLE001 - never kill the server
                 job.status = "cancelled" if job.cancel_token.is_set() else "error"
-                job.error = e.to_dict()
-            except Exception as e:  # noqa: BLE001 - never kill the server
-                job.status = "error"
-                job.error = {"kind": "internal", "label": "Belső hiba", "message": str(e),
-                             "detail": traceback.format_exc()[-3000:]}
+                if job.status == "error":
+                    job.error = describe_exception(e, stage=job.stage or None)
             job.finished = time.time()
             if self._on_finish:
                 try:

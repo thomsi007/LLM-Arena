@@ -1,7 +1,7 @@
 // LLM A / LLM B configuration, connection test, model auto-detection, global settings.
 import { api } from "../api.js";
 import { state, refresh } from "../state.js";
-import { esc, toast } from "../ui.js";
+import { esc, toast, showError, errorBox } from "../ui.js";
 
 let root;
 let saveTimer = null;
@@ -108,7 +108,7 @@ async function save(silent = true) {
     await api.saveConfig(collect());
     if (!silent) toast("Beállítások mentve", "ok");
     refresh(50);
-  } catch (e) { toast("Mentés sikertelen: " + e.message, "error"); }
+  } catch (e) { showError(e, "Beállítások mentése"); }
 }
 
 function renderSteps(slot, res) {
@@ -116,8 +116,9 @@ function renderSteps(slot, res) {
   const badge = root.querySelector(`#conn-badge-${slot}`);
   badge.textContent = res.ok ? `OK · ${res.model || "?"}` : "HIBA";
   badge.className = `badge ${res.ok ? "ok" : "err"}`;
-  root.querySelector(`#conn-${slot}`).innerHTML = res.steps.map((s) => `<div>${s.ok ? "✅" : "❌"} <b>${names[s.step] || s.step}</b>:
-    ${esc(s.info || (s.error ? `${s.error.label}: ${s.error.message}` : ""))}</div>`).join("") +
+  root.querySelector(`#conn-${slot}`).innerHTML = res.steps.map((s) => s.error
+    ? `<div>❌ <b>${names[s.step] || s.step}</b></div>${errorBox(s.error)}`
+    : `<div>${s.ok ? "✅" : "❌"} <b>${names[s.step] || s.step}</b>: ${esc(s.info || "")}</div>`).join("") +
     `<div class="hint">Összesen ${res.latency}s</div>`;
   state.conn[slot] = { ok: res.ok, model: res.model, error: res.ok ? null : "kapcsolati hiba" };
 }
@@ -144,8 +145,9 @@ export default {
           const r = (await api.webTest(root.querySelector("#web-q").value)).result;
           out.innerHTML = r.ok
             ? `<div class="hint">✅ ${esc(r.summary)} (${r.duration}s)</div>` + r.sources.map((s, i) => `<a href="${esc(/^https?:/i.test(s.url) ? s.url : "#")}" target="_blank" rel="noopener noreferrer">[${i + 1}] ${esc(s.title)}</a>`).join("")
-            : `<div class="errbox">${esc(r.summary)}</div>`;
-        } catch (err) { out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`; } finally { e.target.disabled = false; }
+            : errorBox({ kind: "web", label: "A keresés nem sikerült", message: r.summary,
+                hint: "Ellenőrizd az internetkapcsolatot / proxyt, vagy válts keresőmotort (SearXNG, Brave)." });
+        } catch (err) { out.innerHTML = errorBox(err, "Webes keresés"); } finally { e.target.disabled = false; }
         return;
       }
       const t = e.target.closest("[data-test]");
@@ -162,7 +164,7 @@ export default {
             root.querySelector(`#models-${slot}`).innerHTML = r.result.models.map((m) => `<option value="${esc(m)}">`).join("");
             if (!modelInput.value) modelInput.placeholder = `auto → ${r.result.models[0]}`;
           }
-        } catch (err) { toast(err.message, "error"); } finally { t.disabled = false; }
+        } catch (err) { showError(err, "Beállítások"); } finally { t.disabled = false; }
         return;
       }
       const d = e.target.closest("[data-detect]");
@@ -172,13 +174,13 @@ export default {
         try {
           await save(true);
           const r = await api.detectModels(slot);
-          if (!r.ok) { toast(`LLM ${slot}: ${r.error?.label}: ${r.error?.message}`, "error"); return; }
+          if (!r.ok) { showError(r.error, `LLM ${slot} modellfelismerés`); return; }
           root.querySelector(`#models-${slot}`).innerHTML = r.models.map((m) => `<option value="${esc(m)}">`).join("");
           const input = root.querySelector(`[data-slot="${slot}"][data-key="model"]`);
           input.placeholder = r.model ? `auto → ${r.model}` : "auto";
           toast(`LLM ${slot}: ${r.models.length} modell – ${r.models.join(", ") || "nincs lista"}`, "ok");
           state.conn[slot] = { ok: true, model: r.model };
-        } catch (err) { toast(err.message, "error"); } finally { d.disabled = false; }
+        } catch (err) { showError(err, "Beállítások"); } finally { d.disabled = false; }
       }
     });
   },

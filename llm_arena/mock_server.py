@@ -103,6 +103,8 @@ def _fence(name: str, code: str) -> str:
 def respond(messages: list[dict], name: str) -> str:
     """Pick a plausible answer from the last user message."""
     user = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+    if isinstance(user, list):  # multimodal parts
+        user = " ".join(p.get("text", "[image]") if isinstance(p, dict) else str(p) for p in user)
     system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
     u = user
     if "single word: pong" in u:

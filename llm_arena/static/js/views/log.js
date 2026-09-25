@@ -1,7 +1,7 @@
 // Log viewer with level / text filter and live polling.
 import { api } from "../api.js";
 import { state } from "../state.js";
-import { esc, toast, download } from "../ui.js";
+import { esc, toast, download, showError, errorBox } from "../ui.js";
 
 let root;
 let timer = null;
@@ -50,7 +50,7 @@ export default {
       entries.map((e) => `${new Date(e.ts * 1000).toISOString()}\t${e.level}\t${e.source}\t${e.text}`).join("\n"));
     root.querySelector("#log-clear").onclick = async () => {
       if (!confirm("Törlöd a naplót?")) return;
-      try { await api.clearLog(); entries = []; render(); } catch (e) { toast(e.message, "error"); }
+      try { await api.clearLog(); entries = []; render(); } catch (e) { showError(e, "Napló"); }
     };
     poll();
     timer = setInterval(poll, 2000);

@@ -191,6 +191,14 @@ class Ctx:
         return self.msgs.get(msg_id or "")
 
 
+def files_line(ctx: Ctx, ids) -> str:
+    if not ids:
+        return ""
+    names = {a["id"]: a for a in ctx.p.get("attachments", []) if isinstance(a, dict)}
+    items = [e(names[i]["name"]) if i in names else "törölt fájl" for i in ids]
+    return f'<p class="muted">📎 Csatolt fájlok: {", ".join(items)}</p>'
+
+
 def message_card(ctx: Ctx, m: dict | None, title: str = "", content: str | None = None, slot: str = "") -> str:
     if not m:
         return (f'<article class="msg slot-{e(slot)}"><header>{badge("LLM " + slot, slot.lower())}'
@@ -254,7 +262,7 @@ def sec_arena(ctx: Ctx) -> str:
                    f'tokenek: A {a.get("tokens")} / B {b.get("tokens")}</p>')
         kind = " · elemzés" if r.get("kind") == "analysis" else ""
         out.append(f'<section class="round"><h3>{r["round"]}. kör{kind} <span class="muted">{fmt_ts(r.get("created"))}</span></h3>'
-                   f'<div class="prompt">{markdown(r["prompt"])}</div>'
+                   f'<div class="prompt">{markdown(r["prompt"])}{files_line(ctx, r.get("attachments"))}</div>'
                    f'<div class="versus">{message_card(ctx, a, slot="A", title=ctx.name("A"))}'
                    f'{message_card(ctx, b, slot="B", title=ctx.name("B"))}</div>{cmp}</section>')
     return "".join(out)

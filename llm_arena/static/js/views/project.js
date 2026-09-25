@@ -1,7 +1,7 @@
 // Session / project management: save, load, new, export, import.
 import { api } from "../api.js";
 import { state, refresh } from "../state.js";
-import { esc, toast, fmtDate, exportHtmlBtn } from "../ui.js";
+import { esc, toast, fmtDate, exportHtmlBtn, showError, errorBox, attachmentChip, fmtSize } from "../ui.js";
 import { probeConnections } from "../app.js";
 
 let root;
@@ -16,13 +16,25 @@ async function loadList() {
           <td style="white-space:nowrap"><button class="btn small" data-load="${p.id}">Betöltés</button>
           <button class="btn small danger" data-del="${p.id}">Törlés</button></td></tr>`).join("")}</tbody></table>`
       : '<div class="empty">Nincs mentett projekt.</div>';
-  } catch (e) { toast(e.message, "error"); }
+  } catch (e) { showError(e, "Projekt"); }
+}
+
+function renderAtts() {
+  const atts = state.project.attachments || [];
+  root.querySelector("#proj-atts").innerHTML = atts.length
+    ? `<table class="tbl"><thead><tr><th>Fájl</th><th>Típus</th><th>Méret</th><th>Tartalom</th><th></th></tr></thead><tbody>
+      ${atts.map((a) => `<tr><td>${attachmentChip(a)}</td><td>${esc(a.kind === "image" ? "kép" : a.ext || "szöveg")}</td><td>${fmtSize(a.size)}</td>
+        <td class="hint">${a.kind === "image" ? "kép (multimodális modellnek)" : `${a.chars.toLocaleString("hu-HU")} karakter${a.truncated ? " (levágva)" : ""}`}${a.note ? " · " + esc(a.note) : ""}</td>
+        <td style="white-space:nowrap">${a.kind === "text" ? `<a class="btn small" href="/api/attachments/${a.id}?text=1" target="_blank">Kinyert szöveg</a>` : ""}
+          <button class="btn small danger" data-att-del="${a.id}">Törlés</button></td></tr>`).join("")}</tbody></table>`
+    : '<div class="hint">Nincs csatolt fájl.</div>';
 }
 
 async function reloadAll(msg) {
   const data = await api.project();
   state.project = data.project;
   state.live.clear();
+  state.drafts = {};
   toast(msg, "ok");
   refresh(10);
   probeConnections();
@@ -60,14 +72,16 @@ export default {
           <p class="hint">Korábban exportált <span class="mono">.arena.json</span> fájl visszatöltése (az aktuális projekt előtte automatikusan mentődik).</p>
           <input type="file" id="proj-file" accept=".json,application/json"></div>
       </div>
+      <div class="card"><div class="card-head"><h2>📎 Csatolt fájlok</h2><span class="hint">A projekthez feltöltött összes fájl (az Aréna, Vita, Tervezés és Teljes folyamat fülön csatolhatók)</span></div>
+        <div id="proj-atts"></div></div>
       <div class="card"><div class="card-head"><h2>Mentett projektek</h2><span class="spacer"></span><button class="btn small" id="proj-refresh">↻</button></div><div id="proj-list"></div></div>`;
     root.querySelector("#proj-save").onclick = async () => {
-      try { const r = await api.saveProject(root.querySelector("#proj-name").value); toast("Mentve: " + r.path, "ok"); refresh(10); loadList(); } catch (e) { toast(e.message, "error"); }
+      try { const r = await api.saveProject(root.querySelector("#proj-name").value); toast("Mentve: " + r.path, "ok"); refresh(10); loadList(); } catch (e) { showError(e, "Projekt"); }
     };
     root.querySelector("#proj-new").onclick = async () => {
       const name = prompt("Új projekt neve:", "");
       if (name === null) return;
-      try { await api.newProject(name); await reloadAll("Új projekt létrehozva"); } catch (e) { toast(e.message, "error"); }
+      try { await api.newProject(name); await reloadAll("Új projekt létrehozva"); } catch (e) { showError(e, "Projekt"); }
     };
     root.querySelector("#proj-export").onclick = () => {
       location.href = "/api/project/export?include_keys=" + (root.querySelector("#proj-keys").checked ? "1" : "0");
@@ -80,17 +94,29 @@ export default {
         const data = JSON.parse(await file.text());
         await api.importProject(data);
         await reloadAll("Projekt importálva: " + (data.name || file.name));
-      } catch (err) { toast("Importálás sikertelen: " + err.message, "error"); }
+      } catch (err) { showError(err, "Projekt importálása"); }
     };
     root.addEventListener("click", async (e) => {
       const l = e.target.closest("[data-load]");
-      if (l) { try { await api.loadProject(l.dataset.load); await reloadAll("Projekt betöltve"); } catch (err) { toast(err.message, "error"); } return; }
+      if (l) { try { await api.loadProject(l.dataset.load); await reloadAll("Projekt betöltve"); } catch (err) { showError(err, "Projekt"); } return; }
+      const ad = e.target.closest("[data-att-del]");
+      if (ad) {
+        if (!confirm("Törlöd a fájlt? A korábbi futások hivatkozása „törölt fájl” lesz.")) return;
+        try {
+          await api.deleteAttachment(ad.dataset.attDel);
+          state.project.attachments = state.project.attachments.filter((a) => a.id !== ad.dataset.attDel);
+          for (const k of Object.keys(state.drafts)) state.drafts[k] = state.drafts[k].filter((a) => a.id !== ad.dataset.attDel);
+          renderAtts();
+        } catch (err) { showError(err, "Fájl törlése"); }
+        return;
+      }
       const d = e.target.closest("[data-del]");
       if (d && confirm("Végleg törlöd a mentett projektet?")) {
-        try { await api.deleteProject(d.dataset.del); loadList(); } catch (err) { toast(err.message, "error"); }
+        try { await api.deleteProject(d.dataset.del); loadList(); } catch (err) { showError(err, "Projekt"); }
       }
     });
     loadList();
+    renderAtts();
   },
   update() { /* static */ },
 };

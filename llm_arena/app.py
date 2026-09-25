@@ -69,8 +69,23 @@ class ArenaApp:
 
         return self.jobs.start(kind, title, run)
 
-    def start_arena(self, prompt: str, multi_turn: bool = True) -> Job:
-        return self._start("arena", "Aréna kör", lambda ctx: arena.run_arena(ctx, prompt, multi_turn=multi_turn))
+    def _files(self, ids) -> list[str]:
+        """Validate attachment ids up front so the user gets an immediate, clear error."""
+        ids = [str(i) for i in (ids or []) if i]
+        self.store.get_attachments(ids, strict=True)
+        return ids
+
+    def _text_or_files(self, text: str, ids: list[str], what: str) -> str:
+        text = (text or "").strip()
+        if not text and not ids:
+            raise ValueError(f"Adj meg {what}, vagy csatolj fájlt.")
+        return text or "Dolgozd fel a csatolt fájl(oka)t: foglald össze, elemezd, és válaszolj a bennük lévő kérdésekre."
+
+    def start_arena(self, prompt: str, multi_turn: bool = True, attachments: list | None = None) -> Job:
+        files = self._files(attachments)
+        prompt = self._text_or_files(prompt, files, "feladatot / kérdést")
+        return self._start("arena", "Aréna kör", lambda ctx: arena.run_arena(ctx, prompt, multi_turn=multi_turn,
+                                                                            attachments=files))
 
     def retry_arena(self, round_no: int, slot: str) -> Job:
         _check_slot(slot)
@@ -95,17 +110,29 @@ class ArenaApp:
                            lambda ctx: consensus.run_consensus(ctx, task=task or snap["task"],
                                                                candidates=candidates, source=source))
 
-    def start_debate(self, topic: str = "", rounds: int | None = None, resume: bool = False) -> Job:
+    def start_debate(self, topic: str = "", rounds: int | None = None, resume: bool = False,
+                     attachments: list | None = None) -> Job:
+        files = self._files(attachments)
+        if not resume:
+            topic = self._text_or_files(topic, files, "vitatémát")
+        elif not (self.store.snapshot().get("debate") or {}).get("topic"):
+            raise ValueError("Nincs folytatható vita – indíts újat.")
         return self._start("debate", "Vita" + (" (folytatás)" if resume else ""),
-                           lambda ctx: debate.run_debate(ctx, topic=topic, rounds=rounds, resume=resume))
+                           lambda ctx: debate.run_debate(ctx, topic=topic, rounds=rounds, resume=resume,
+                                                         attachments=files))
 
     def start_design(self, requirements: str = "", developer: str | None = None, resume: bool = False,
-                     run_tests: bool = True) -> Job:
+                     run_tests: bool = True, attachments: list | None = None) -> Job:
         if developer:
             _check_slot(developer)
+        files = self._files(attachments)
+        if not resume:
+            requirements = self._text_or_files(requirements, files, "követelményeket")
+        elif not (self.store.snapshot().get("design") or {}).get("requirements"):
+            raise ValueError("Nincs folytatható terv – indíts újat.")
         return self._start("design", "Közös programtervezés" + (" (folytatás)" if resume else ""),
                            lambda ctx: design.run_design(ctx, requirements=requirements, developer=developer,
-                                                         resume=resume, run_tests=run_tests))
+                                                         resume=resume, run_tests=run_tests, attachments=files))
 
     def start_testing(self, action: str, max_iterations: int | None = None) -> Job:
         req = self._requirements()
@@ -124,9 +151,48 @@ class ArenaApp:
             raise ValueError("Ismeretlen tesztművelet.")
         return self._start("testing", title, fn)
 
-    def start_pipeline(self, task: str = "", resume: bool = False) -> Job:
+    def start_pipeline(self, task: str = "", resume: bool = False, attachments: list | None = None) -> Job:
+        files = self._files(attachments)
+        if not resume:
+            task = self._text_or_files(task, files, "feladatot")
+        elif not (self.store.snapshot().get("pipeline") or {}).get("task"):
+            raise ValueError("Nincs folytatható folyamat – indíts újat.")
         return self._start("pipeline", "Teljes folyamat" + (" (folytatás)" if resume else ""),
-                           lambda ctx: pipeline.run_pipeline(ctx, task=task, resume=resume))
+                           lambda ctx: pipeline.run_pipeline(ctx, task=task, resume=resume, attachments=files))
+
+    # ----------------------------------------------------------- attachments
+    def upload_attachment(self, name: str, data_b64: str, mime: str = "") -> dict:
+        import base64
+        import binascii
+        from . import attachments as att
+        if not data_b64:
+            raise att.AttachmentError("Hiányzó fájltartalom.")
+        try:
+            raw = base64.b64decode(data_b64.split(",", 1)[-1], validate=False)
+        except (binascii.Error, ValueError) as e:
+            raise att.AttachmentError(f"Hibás fájlkódolás: {e}")
+        rec = att.ingest(name, raw, mime)
+        self.store.add_attachment(rec)
+        self.store.log("info", f"Fájl csatolva: {rec['name']} ({rec['size']} bájt, {rec['kind']})", source="files")
+        return att.meta(rec)
+
+    def list_attachments(self) -> list[dict]:
+        from . import attachments as att
+        with self.store.lock:
+            return [att.meta(r) for r in sorted(self.store.attachments.values(), key=lambda r: r["created"])]
+
+    def upload_code_file(self, name: str, data_b64: str) -> dict:
+        import base64
+        from . import attachments as att
+        from .textutil import safe_path
+        path = safe_path(name.replace(" ", "_"))
+        if not path:
+            raise att.AttachmentError(f"Érvénytelen fájlnév a kódhoz: {name} (csak betű, szám, _ - . / engedett).")
+        rec = att.ingest(name, base64.b64decode(data_b64.split(",", 1)[-1]), "")
+        if rec["kind"] != "text":
+            raise att.AttachmentError("A kódnézetbe csak szöveges (forráskód) fájl tölthető fel.")
+        v = self.store.set_code({path: rec["text"]}, source="upload", note=f"Feltöltve: {path}")
+        return {"version": v["version"], "path": path}
 
     def _requirements(self) -> str:
         snap = self.store.snapshot()

@@ -232,7 +232,7 @@ class ServerTest(unittest.TestCase):
         self.assertIn(b"Hello", body)
 
     def test_errors_and_static(self):
-        self.assertEqual(self.req("POST", "/api/arena/run", {"prompt": ""})[0], 200)  # job fails, server fine
+        self.assertEqual(self.req("POST", "/api/arena/run", {"prompt": ""})[0], 400)  # rejected up front, clear message
         self.assertEqual(self.req("GET", "/api/nope")[0], 404)
         self.assertEqual(self.req("GET", "/../../etc/passwd")[0], 404)
         self.assertEqual(self.req("GET", "/api/code/download")[0], 400)

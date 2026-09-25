@@ -8,6 +8,7 @@ export const state = {
   live: new Map(),       // msgId -> {content, reasoning, status}
   conn: { A: null, B: null },
   tab: "arena",
+  drafts: {},            // section -> [attachment meta] selected for the next run
 };
 
 const listeners = new Set();

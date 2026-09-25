@@ -1,7 +1,7 @@
 // Collaborative Coding / Program Designer: 11-stage developer + reviewer workflow.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs } from "../state.js";
-import { esc, toast, messageCard, runningBanner, statusBadge, markdown, jsonBlock, lastFinishedError, exportHtmlBtn } from "../ui.js";
+import { esc, toast, messageCard, runningBanner, statusBadge, markdown, jsonBlock, lastFinishedError, exportHtmlBtn, showError, errorBox, attachBox, bindAttach, draftIds, setDraft, attachmentList } from "../ui.js";
 
 let root;
 const open = new Set();
@@ -29,7 +29,7 @@ function stageHtml(d, key) {
   let extra = "";
   if (st.issues) extra += `<h3>Talált problémák</h3>${issuesTable(st.issues)}`;
   if (st.proposals) extra += `<p class="hint">Két architektúra-javaslat közös döntéssel egyesítve. ${esc(st.note || "")} <a href="#consensus" data-tab="consensus" data-goto>Részletek →</a></p>`;
-  if (st.error) extra += `<div class="errbox">${esc(st.error.label || "Hiba")}: ${esc(st.error.message)}</div>`;
+  if (st.error) extra += errorBox(st.error, st.label);
   return `<div class="step ${st.status} ${isOpen ? "open" : ""}" data-stage="${key}">
     <div class="step-head" data-toggle="${key}"><span class="ico">${ICON[st.status] ?? ""}</span><strong>${esc(st.label)}</strong>
       <span class="hint">${who}</span><span class="spacer"></span>${statusBadge(st.status)}</div>
@@ -51,6 +51,7 @@ export default {
       <div class="card">
         <label class="field"><span>Követelmények / programleírás</span>
           <textarea id="des-req" rows="5" placeholder="pl. Készíts egy parancssori TODO-kezelőt JSON fájl tárolással, prioritásokkal és határidőkkel.">${esc(d.requirements || state.project.task || "")}</textarea></label>
+        ${attachBox("design")}
         <div class="row">
           <label class="field" style="max-width:260px"><span>Elsődleges fejlesztő</span>
             <select id="des-dev"><option value="A" ${s.developer === "A" ? "selected" : ""}>LLM A fejleszt, LLM B review</option>
@@ -64,16 +65,19 @@ export default {
         ${s.allow_code_execution ? "" : '<div class="warnbox mt">A kódfuttatás ki van kapcsolva – a tesztek generálódnak, de nem futnak. <a href="#settings" data-tab="settings" data-goto>Beállítások →</a></div>'}
       </div>
       <div id="des-banner"></div><div id="des-body"></div>`;
+    if (!state.drafts.design) setDraft("design", state.project.design?.attachments);
+    bindAttach(root, "design");
     root.querySelector("#des-start").onclick = async () => {
       const requirements = root.querySelector("#des-req").value.trim();
-      if (!requirements) { toast("Adj meg követelményeket.", "warn"); return; }
+      const attachments = draftIds("design");
+      if (!requirements && !attachments.length) { toast("Adj meg követelményeket, vagy csatolj fájlt (pl. specifikáció).", "warn"); return; }
       if (state.project.design?.requirements && !confirm("Új tervezés indul – a korábbi terv felülíródik (a kódverziók megmaradnak). Folytatod?")) return;
       try {
-        trackJob((await api.design({ requirements, developer: root.querySelector("#des-dev").value, run_tests: root.querySelector("#des-tests").checked })).job);
-      } catch (e) { toast(e.message, "error"); }
+        trackJob((await api.design({ requirements, attachments, developer: root.querySelector("#des-dev").value, run_tests: root.querySelector("#des-tests").checked })).job);
+      } catch (e) { showError(e, "Programtervezés"); }
     };
     root.querySelector("#des-resume").onclick = async () => {
-      try { trackJob((await api.design({ resume: true, run_tests: root.querySelector("#des-tests").checked })).job); } catch (e) { toast(e.message, "error"); }
+      try { trackJob((await api.design({ resume: true, run_tests: root.querySelector("#des-tests").checked })).job); } catch (e) { showError(e, "Programtervezés"); }
     };
     root.addEventListener("click", (e) => {
       const t = e.target.closest("[data-toggle]");
@@ -96,11 +100,12 @@ export default {
     root.querySelector("#des-body").innerHTML = `
       <div class="row"><h2>Munkafolyamat</h2>${statusBadge(d.status)}<span class="hint">${done} / ${d.order.length} lépés kész ·
         fejlesztő: LLM ${esc(d.developer)} · reviewer: LLM ${esc(d.reviewer)}</span></div>
-      ${d.error && d.status !== "done" ? `<div class="errbox">${esc(d.error.label || "Hiba")}: ${esc(d.error.message)} – a „Folytatás” gombbal a hibás lépéstől újrapróbálható.</div>` : lastFinishedError("design")}
+      ${d.error && d.status !== "done" ? errorBox({ ...d.error, hint: (d.error.hint ? d.error.hint + " " : "") + "A „Folytatás / újrapróbálás” gombbal a hibás lépéstől újrapróbálható." }, "A folyamat leállt") : lastFinishedError("design")}
       ${final ? `<div class="card"><div class="card-head"><h2>Végleges verzió: v${final.version}</h2><span class="spacer"></span>
         <a class="btn small" href="#code" data-tab="code" data-goto>Kódnézet →</a><a class="btn small" href="/api/code/download">⤓ ZIP</a></div>
         ${final.audit ? `<div class="hint">Végső audit: ${final.audit.approved ? "✅ jóváhagyva" : "⚠ nincs jóváhagyva"}</div>` : ""}
         ${final.test_report ? `<div>Tesztek: <b>${final.test_report.passed}</b> sikeres / <b>${final.test_report.failed}</b> sikertelen, javított hibák: <b>${final.test_report.fixed_bugs.length}</b></div>` : ""}</div>` : ""}
+      ${attachmentList(d.attachments)}
       <div class="stepper">${d.order.map((k) => stageHtml(d, k)).join("")}</div>
       <h2>Review problémák (kódellenőrzés)</h2>${issuesTable(d.review_issues)}`;
   },

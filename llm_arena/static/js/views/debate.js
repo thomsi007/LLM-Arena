@@ -1,7 +1,7 @@
 // Structured debate: A proponent vs B critic, ledger + synthesis.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs } from "../state.js";
-import { esc, toast, messageCard, runningBanner, list, statusBadge, lastFinishedError, markdown, exportHtmlBtn } from "../ui.js";
+import { esc, toast, messageCard, runningBanner, list, statusBadge, lastFinishedError, markdown, exportHtmlBtn, showError, errorBox, attachBox, bindAttach, draftIds, setDraft, attachmentList } from "../ui.js";
 
 let root;
 const PHASE = { position: "Álláspont", critique: "Kritika", rebuttal: "Válasz a kritikára", counter: "Válasz az új érvekre" };
@@ -71,6 +71,7 @@ export default {
       Menet: A álláspont → B kritika → A válasz → B válasz (… körönként) → összegzés és kereszt-ellenőrzés.</p>
       <div class="card">
         <label class="field"><span>Vitatéma / feladat</span><textarea id="deb-topic" rows="3" placeholder="pl. Monolit vagy mikroszolgáltatás egy 5 fős csapat új SaaS termékéhez?">${esc(state.project.debate?.topic || "")}</textarea></label>
+        ${attachBox("debate")}
         <div class="row">
           <label class="field" style="max-width:140px"><span>Körök száma</span><input type="number" id="deb-rounds" min="1" max="8" value="${s.debate_rounds}"></label>
           <span class="spacer"></span>
@@ -80,13 +81,16 @@ export default {
         </div>
       </div>
       <div id="deb-banner"></div><div id="deb-body"></div>`;
+    if (!state.drafts.debate) setDraft("debate", state.project.debate?.attachments);
+    bindAttach(root, "debate");
     root.querySelector("#deb-start").onclick = async () => {
       const topic = root.querySelector("#deb-topic").value.trim();
-      if (!topic) { toast("Adj meg vitatémát.", "warn"); return; }
-      try { trackJob((await api.debate({ topic, rounds: +root.querySelector("#deb-rounds").value })).job); } catch (e) { toast(e.message, "error"); }
+      const attachments = draftIds("debate");
+      if (!topic && !attachments.length) { toast("Adj meg vitatémát, vagy csatolj fájlt.", "warn"); return; }
+      try { trackJob((await api.debate({ topic, attachments, rounds: +root.querySelector("#deb-rounds").value })).job); } catch (e) { showError(e, "Vita"); }
     };
     root.querySelector("#deb-resume").onclick = async () => {
-      try { trackJob((await api.debate({ resume: true })).job); } catch (e) { toast(e.message, "error"); }
+      try { trackJob((await api.debate({ resume: true })).job); } catch (e) { showError(e, "Vita"); }
     };
     root.addEventListener("click", (e) => {
       if (e.target.id === "copy-synth") navigator.clipboard.writeText(synthText(state.project.debate.synthesis)).then(() => toast("Másolva", "ok", 1200));
@@ -105,7 +109,8 @@ export default {
         ${chips(t.structured)}</div>`).join("");
     root.querySelector("#deb-body").innerHTML = `
       <div class="row"><h2>Vita menete</h2>${statusBadge(d.status)}<span class="hint">${d.turns.filter((t) => t.status === "done").length} / ${d.rounds * 2} hozzászólás</span></div>
-      ${d.error && d.status !== "done" ? `<div class="errbox">${esc(d.error.label || "Hiba")}: ${esc(d.error.message)} – a „Folytatás” gombbal az utolsó sikeres lépéstől folytatható.</div>` : lastFinishedError("debate")}
+      ${d.error && d.status !== "done" ? errorBox({ ...d.error, hint: (d.error.hint ? d.error.hint + " " : "") + "A „Folytatás / újrapróbálás” gombbal az utolsó sikeres lépéstől folytatható." }, "A folyamat leállt") : lastFinishedError("debate")}
+      ${attachmentList(d.attachments)}
       <h3>Strukturált állapot</h3>${ledgerHtml(d)}
       <div class="timeline">${turns || '<div class="empty">Indul…</div>'}</div>
       <div class="mt">${synthesisHtml(d)}</div>

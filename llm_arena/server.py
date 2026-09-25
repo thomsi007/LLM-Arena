@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .app import ArenaApp, ConflictError
+from .errors import describe_exception, make
 
 STATIC_DIR = Path(__file__).parent / "static"
 # Explicit types: on Windows `mimetypes` reads the registry, which often maps
@@ -32,10 +33,14 @@ MAX_BODY = 50 * 1024 * 1024
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, message: str):
+    LABELS = {400: "Hibás kérés", 404: "Nem található", 409: "Ütközés", 413: "Túl nagy fájl / kérés"}
+
+    def __init__(self, status: int, message: str, kind: str | None = None, label: str | None = None):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.kind = kind or {404: "not_found", 409: "conflict"}.get(status, "invalid_input")
+        self.label = label or self.LABELS.get(status, "Hiba")
 
 
 ROUTES: list[tuple[str, re.Pattern, str]] = []
@@ -75,20 +80,24 @@ class Handler(BaseHTTPRequestHandler):
                         return getattr(self, name)(**match.groupdict())
             raise ApiError(404, f"Ismeretlen végpont: {method} {path}")
         except ApiError as e:
-            self._json({"ok": False, "error": e.message}, e.status)
+            self._error(e.status, make(e.kind, e.label, e.message))
         except ConflictError as e:
-            self._json({"ok": False, "error": str(e)}, 409)
-        except (ValueError, KeyError, TypeError) as e:
-            self._json({"ok": False, "error": str(e)}, 400)
+            self._error(409, make("conflict", "Már fut egy folyamat", str(e)))
         except (BrokenPipeError, ConnectionResetError, socket.timeout):
             pass
         except Exception as e:  # noqa: BLE001
-            traceback.print_exc()
-            self.app.store.log("error", f"Szerverhiba: {e}", source="server")
+            err = describe_exception(e)
+            status = 400 if err["kind"] in ("invalid_input", "attachment", "not_found") else 500
+            if status == 500:
+                traceback.print_exc()
+                self.app.store.log("error", f"Szerverhiba ({method} {path}): {err['message']}", source="server")
             try:
-                self._json({"ok": False, "error": f"Belső hiba: {e}"}, 500)
+                self._error(status, err)
             except Exception:  # noqa: BLE001
                 pass
+
+    def _error(self, status: int, err: dict) -> None:
+        self._json({"ok": False, "error": err.get("message"), "error_info": err}, status)
 
     def do_GET(self):  # noqa: N802
         self._dispatch("GET")
@@ -133,7 +142,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
     def _download(self, body: bytes, filename: str, ctype: str) -> None:
-        self._send(200, body, ctype, {"Content-Disposition": f'attachment; filename="{filename}"'})
+        # Header values must be latin-1: ASCII fallback + RFC 5987 UTF-8 name for accented names.
+        import unicodedata
+        from urllib.parse import quote
+        ascii_name = unicodedata.normalize("NFKD", filename).encode("ascii", "ignore").decode() or "download"
+        disp = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+        self._send(200, body, ctype, {"Content-Disposition": disp})
 
     def _static(self, path: str) -> None:
         rel = "index.html" if path in ("", "/") else path.lstrip("/")
@@ -183,7 +197,7 @@ class Handler(BaseHTTPRequestHandler):
     @route("POST", "/api/arena/run")
     def api_arena(self):
         b = self._body()
-        self._job(self.app.start_arena(b.get("prompt", ""), bool(b.get("multi_turn", True))))
+        self._job(self.app.start_arena(b.get("prompt", ""), bool(b.get("multi_turn", True)), b.get("attachments")))
 
     @route("POST", "/api/arena/retry")
     def api_arena_retry(self):
@@ -208,13 +222,13 @@ class Handler(BaseHTTPRequestHandler):
         b = self._body()
         rounds = b.get("rounds")
         self._job(self.app.start_debate(b.get("topic", ""), int(rounds) if rounds else None,
-                                        bool(b.get("resume"))))
+                                        bool(b.get("resume")), b.get("attachments")))
 
     @route("POST", "/api/design/start")
     def api_design(self):
         b = self._body()
         self._job(self.app.start_design(b.get("requirements", ""), b.get("developer"), bool(b.get("resume")),
-                                        bool(b.get("run_tests", True))))
+                                        bool(b.get("run_tests", True)), b.get("attachments")))
 
     @route("POST", "/api/testing/(?P<action>generate|run|loop)")
     def api_testing(self, action):
@@ -225,7 +239,42 @@ class Handler(BaseHTTPRequestHandler):
     @route("POST", "/api/pipeline/start")
     def api_pipeline(self):
         b = self._body()
-        self._job(self.app.start_pipeline(b.get("task", ""), bool(b.get("resume"))))
+        self._job(self.app.start_pipeline(b.get("task", ""), bool(b.get("resume")), b.get("attachments")))
+
+    # -------------------------------------------------------- attachments
+    @route("POST", "/api/attachments")
+    def api_attach_upload(self):
+        b = self._body()
+        self._json({"ok": True, "attachment": self.app.upload_attachment(b.get("name", ""), b.get("data", ""),
+                                                                         b.get("mime", ""))})
+
+    @route("GET", "/api/attachments")
+    def api_attach_list(self):
+        self._json({"ok": True, "attachments": self.app.list_attachments()})
+
+    @route("POST", "/api/attachments/(?P<att_id>\\w+)/delete")
+    def api_attach_delete(self, att_id):
+        if not self.app.store.remove_attachment(att_id):
+            raise ApiError(404, "A csatolt fájl nem található.")
+        self._json({"ok": True})
+
+    @route("GET", "/api/attachments/(?P<att_id>\\w+)")
+    def api_attach_get(self, att_id):
+        import base64
+        rec = self.app.store.attachments.get(att_id)
+        if not rec:
+            raise ApiError(404, "A csatolt fájl nem található.")
+        if self.query.get("text") == "1" or not rec.get("data"):
+            body = (rec.get("text") or "").encode("utf-8")
+            self._download(body, _fname(rec["name"]) + ".txt", "text/plain; charset=utf-8")
+        else:
+            self._download(base64.b64decode(rec["data"]), _fname(rec["name"]),
+                           rec.get("mime") or "application/octet-stream")
+
+    @route("POST", "/api/code/upload")
+    def api_code_upload(self):
+        b = self._body()
+        self._json({"ok": True, **self.app.upload_code_file(b.get("name", ""), b.get("data", ""))})
 
     # --------------------------------------------------------------- jobs
     @route("GET", "/api/jobs")
@@ -282,6 +331,7 @@ class Handler(BaseHTTPRequestHandler):
             cfg["api_key"] = "***" if cfg.get("api_key") else ""
         if data["settings"].get("web_brave_api_key"):
             data["settings"]["web_brave_api_key"] = "***"
+        data["attachments"] = self.app.list_attachments()
         self._json({"ok": True, "project": data, "jobs": self.app.jobs.list()})
 
     @route("POST", "/api/project/new")
@@ -350,7 +400,9 @@ class Handler(BaseHTTPRequestHandler):
     def api_export_html(self):
         from . import report
         section = self.query.get("section", "all")
-        body = report.render(self.app.store.snapshot(), section).encode("utf-8")
+        snap = self.app.store.snapshot()
+        snap["attachments"] = self.app.list_attachments()
+        body = report.render(snap, section).encode("utf-8")
         name = f"{_fname(self.app.store.project['name'])}_{section}.html"
         self._download(body, name, "text/html; charset=utf-8")
 

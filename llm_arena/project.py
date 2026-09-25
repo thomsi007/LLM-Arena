@@ -112,6 +112,9 @@ class ProjectStore:
         defaults = self._load_defaults()
         self.project = new_project(llms=defaults.get("llms"), settings=defaults.get("settings"))
         self._dirty = False
+        # Attachments live outside ``project`` so frequent snapshots do not copy big payloads;
+        # they are written into the project file on save/export.
+        self.attachments: dict[str, dict] = {}
 
     # ---------------------------------------------------------------- defaults
     def _load_defaults(self) -> dict:
@@ -217,7 +220,7 @@ class ProjectStore:
     # ------------------------------------------------------------ persistence
     def save(self) -> str:
         with self.lock:
-            data = json.dumps(self.project, ensure_ascii=False)
+            data = json.dumps({**self.project, "attachments": self.attachments}, ensure_ascii=False)
             path = self.projects_dir / f"{self.project['id']}.json"
             self._dirty = False
         _atomic_write(path, data)
@@ -246,9 +249,12 @@ class ProjectStore:
         if not re.match(r"^[\w-]+$", project_id or ""):
             raise ValueError("Érvénytelen projekt azonosító.")
         path = self.projects_dir / f"{project_id}.json"
-        data = migrate(json.loads(path.read_text("utf-8")))
+        raw = json.loads(path.read_text("utf-8"))
+        atts = raw.pop("attachments", None) if isinstance(raw, dict) else None
+        data = migrate(raw)
         with self.lock:
             self.project = data
+            self.attachments = atts if isinstance(atts, dict) else {}
             self._dirty = False
         return data
 
@@ -266,6 +272,7 @@ class ProjectStore:
             llms = self.project["llms"] if keep_settings else None
             settings = self.project["settings"] if keep_settings else None
             self.project = new_project(name, llms=llms, settings=settings)
+            self.attachments = {}
             self._dirty = True
         return self.project
 
@@ -275,11 +282,15 @@ class ProjectStore:
             for cfg in data["llms"].values():
                 cfg["api_key"] = ""
             data["settings"]["web_brave_api_key"] = ""
+        with self.lock:
+            data["attachments"] = dict(self.attachments)
         data["exported"] = time.time()
         return data
 
     def import_project(self, data: dict) -> dict:
-        data = migrate(copy.deepcopy(data))
+        data = copy.deepcopy(data)
+        atts = data.pop("attachments", None) if isinstance(data, dict) else None
+        data = migrate(data)
         data.pop("exported", None)
         with self.lock:
             # Keep locally configured API keys when the export was stripped of them.
@@ -289,8 +300,35 @@ class ProjectStore:
             if not data["settings"].get("web_brave_api_key"):
                 data["settings"]["web_brave_api_key"] = self.project["settings"].get("web_brave_api_key", "")
             self.project = data
+            self.attachments = atts if isinstance(atts, dict) else {}
             self.touch()
         return data
+
+    # ----------------------------------------------------------- attachments
+    def add_attachment(self, rec: dict) -> dict:
+        with self.lock:
+            self.attachments[rec["id"]] = rec
+            self.touch()
+        return rec
+
+    def remove_attachment(self, att_id: str) -> bool:
+        with self.lock:
+            found = self.attachments.pop(att_id, None) is not None
+            if found:
+                self.touch()
+        return found
+
+    def get_attachments(self, ids: list[str] | None, *, strict: bool = True) -> list[dict]:
+        out = []
+        with self.lock:
+            for i in ids or []:
+                rec = self.attachments.get(i)
+                if rec is None:
+                    if strict:
+                        raise ValueError(f"A csatolt fájl nem található (azonosító: {i}). Töltsd fel újra.")
+                    continue
+                out.append(rec)
+        return out
 
 
 class _Mutation:

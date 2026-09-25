@@ -9,6 +9,7 @@ from .. import prompts
 from ..textutil import clip
 from . import testing
 from .arena import run_arena
+from ..errors import describe_exception
 from .common import StepFailed, WorkflowContext, message_text
 from .consensus import run_consensus
 from .debate import run_debate, synthesis_text
@@ -23,14 +24,16 @@ PIPELINE_STAGES = [
 ]
 
 
-def run_pipeline(ctx: WorkflowContext, *, task: str | None = None, resume: bool = False) -> dict:
+def run_pipeline(ctx: WorkflowContext, *, task: str | None = None, resume: bool = False,
+                 attachments: list[str] | None = None) -> dict:
     with ctx.store.mutate() as p:
         if not resume or not p.get("pipeline") or not p["pipeline"].get("task"):
             if not (task or "").strip():
                 raise ValueError("Adj meg feladatot.")
             p["pipeline"] = {"task": task.strip(), "status": "running", "created": time.time(), "error": None,
                              "stages": {k: {"status": "pending", "label": lbl} for k, lbl in PIPELINE_STAGES},
-                             "analysis_round": None, "consensus_id": None, "approach": ""}
+                             "analysis_round": None, "consensus_id": None, "approach": "",
+                             "attachments": list(attachments or [])}
             p["task"] = task.strip()
         pl = p["pipeline"]
         pl["status"] = "running"
@@ -53,7 +56,8 @@ def run_pipeline(ctx: WorkflowContext, *, task: str | None = None, resume: bool 
         if pending("analysis"):
             ctx.progress(0.02, "1/5 Elemzés – mindkét modell")
             mark("analysis", "running")
-            res = run_arena(ctx, ctx.fmt(prompts.ANALYSIS_PROMPT, task=task), multi_turn=False, kind="analysis")
+            res = run_arena(ctx, ctx.fmt(prompts.ANALYSIS_PROMPT, task=task), multi_turn=False, kind="analysis",
+                            attachments=pl.get("attachments"))
             if not res["ok"]:
                 raise StepFailed("analysis", {"kind": "analysis_failed", "label": "Elemzés sikertelen",
                                               "message": "Egyik modell sem adott elemzést."})
@@ -88,7 +92,7 @@ def run_pipeline(ctx: WorkflowContext, *, task: str | None = None, resume: bool 
             resume_debate = pl["stages"]["debate"].get("started", False)
             with ctx.store.mutate():
                 pl["stages"]["debate"]["started"] = True
-            run_debate(ctx, topic=topic, resume=resume_debate)
+            run_debate(ctx, topic=topic, resume=resume_debate, attachments=pl.get("attachments"))
             mark("debate", "done")
 
         # 4. Collaborative design, code, tests, fixes.
@@ -101,7 +105,7 @@ def run_pipeline(ctx: WorkflowContext, *, task: str | None = None, resume: bool 
             resume_design = pl["stages"]["design"].get("started", False)
             with ctx.store.mutate():
                 pl["stages"]["design"]["started"] = True
-            run_design(ctx, requirements=reqs, resume=resume_design)
+            run_design(ctx, requirements=reqs, resume=resume_design, attachments=pl.get("attachments"))
             mark("design", "done")
 
         # 5. Final report.
@@ -118,7 +122,7 @@ def run_pipeline(ctx: WorkflowContext, *, task: str | None = None, resume: bool 
     except BaseException as e:
         with ctx.store.mutate():
             pl["status"] = "cancelled" if ctx.job.cancel_token.is_set() else "error"
-            pl["error"] = getattr(e, "error", None) or {"message": str(e)}
+            pl["error"] = describe_exception(e)
             for st in pl["stages"].values():
                 if st["status"] == "running":
                     st["status"] = pl["status"]

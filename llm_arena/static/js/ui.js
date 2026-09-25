@@ -1,6 +1,7 @@
 // Shared UI helpers and components.
 import { esc, markdown } from "./md.js";
 import { state, messageById } from "./state.js";
+import { api } from "./api.js";
 
 export { esc, markdown };
 
@@ -10,6 +11,54 @@ export function toast(text, type = "info", ms = 4200) {
   el.textContent = text;
   document.getElementById("toasts").appendChild(el);
   setTimeout(() => el.remove(), ms);
+}
+
+/** Normalize anything thrown / returned into {label, message, hint, detail}. */
+export function errorInfo(err, context = "") {
+  let info;
+  if (!err) info = { label: "Ismeretlen hiba", message: "" };
+  else if (err.info) info = { ...err.info };
+  else if (err instanceof Error) info = { label: "Hiba a felületen", message: err.message, detail: err.stack, hint: "Frissítsd az oldalt (Ctrl+F5). Ha ismétlődik, küldd el a részleteket." };
+  else if (typeof err === "string") info = { label: "Hiba", message: err };
+  else info = { ...err };
+  if (context) info.context = context;
+  return info;
+}
+
+function errorInner(info) {
+  const details = [info.detail, info.stage ? `Lépés: ${info.stage}` : "", info.kind ? `Típus: ${info.kind}` : "",
+    info.status ? `HTTP státusz: ${info.status}` : ""].filter(Boolean).join("\n");
+  return `<div class="err-title">⚠ ${esc(info.context ? info.context + " – " : "")}${esc(info.label || "Hiba")}</div>
+    ${info.message ? `<div class="err-msg">${esc(info.message)}</div>` : ""}
+    ${info.hint ? `<div class="err-hint">💡 ${esc(info.hint)}</div>` : ""}
+    ${details ? `<details class="err-details"><summary>Részletek</summary><pre>${esc(details)}</pre></details>` : ""}`;
+}
+
+/** Inline error box (inside a view). */
+export function errorBox(err, context = "") {
+  if (!err) return "";
+  return `<div class="errbox">${errorInner(errorInfo(err, context))}</div>`;
+}
+
+const recentErrors = new Map();
+/** Persistent error notification: stays until closed, with hint, details and copy. */
+export function showError(err, context = "") {
+  const info = errorInfo(err, context);
+  const key = `${info.context}|${info.label}|${info.message}`;
+  const now = Date.now();
+  if (recentErrors.get(key) > now - 3000) return;
+  recentErrors.set(key, now);
+  const box = document.getElementById("toasts");
+  while (box.querySelectorAll(".toast.error").length >= 4) box.querySelector(".toast.error").remove();
+  const el = document.createElement("div");
+  el.className = "toast error persistent";
+  el.innerHTML = `<button class="toast-close" title="Bezárás">×</button>${errorInner(info)}
+    <div class="row end"><button class="btn small" data-copy-err>Másolás</button></div>`;
+  el.querySelector(".toast-close").onclick = () => el.remove();
+  el.querySelector("[data-copy-err]").onclick = () => copyText(
+    [info.context, info.label, info.message, info.hint && "Tipp: " + info.hint, info.detail].filter(Boolean).join("\n"));
+  box.appendChild(el);
+  console.error("[LLM Aréna]", info);
 }
 
 export async function copyText(text) {
@@ -81,7 +130,7 @@ export function messageCard(msgOrId, opts = {}) {
       ${tools}
       ${reasoning ? `<details class="reasoning"><summary>Gondolatmenet (${reasoning.length} karakter)</summary><pre data-live-reasoning="${msg.id}">${esc(reasoning)}</pre></details>` : ""}
       ${body}
-      ${err ? `<div class="errbox"><strong>${esc(err.label || "Hiba")}</strong>: ${esc(err.message)}${err.status ? ` (HTTP ${err.status})` : ""}</div>` : ""}
+      ${err ? errorBox(err) : ""}
     </div>
     <div class="msg-meta">
       <span title="Teljes válaszidő">⏱ ${streaming ? "…" : fmtSec(msg.latency)}</span>
@@ -172,15 +221,112 @@ export function runningBanner(kinds) {
 export function lastFinishedError(kind) {
   const jobs = [...state.jobs.values()].filter((j) => j.kind === kind).sort((a, b) => b.created - a.created);
   const j = jobs[0];
-  if (j && j.status === "error" && j.error) {
-    return `<div class="errbox"><strong>${esc(j.error.label || "Hiba")}</strong>: ${esc(j.error.message)}</div>`;
-  }
+  if (j && j.status === "error" && j.error) return errorBox(j.error, j.title);
   return "";
 }
 
 /** Download link for the styled, self-contained HTML report of a section. */
 export function exportHtmlBtn(section, label = "⤓ HTML export") {
   return `<a class="btn" href="/api/export/html?section=${section}" title="Szépen formázott, önálló HTML fájl (böngészőben megnyitható, nyomtatható PDF-be)">${label}</a>`;
+}
+
+// ------------------------------------------------------------ attachments
+const KIND_ICON = { text: "📄", image: "🖼" };
+export const fmtSize = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} kB` : `${(n / 1048576).toFixed(1)} MB`);
+
+export function attachmentChip(a, removable = false) {
+  const info = a.kind === "image" ? "kép" : `${a.chars?.toLocaleString("hu-HU") ?? "?"} karakter`;
+  const tip = [a.name, fmtSize(a.size || 0), info, a.note, a.preview && "\n" + a.preview.slice(0, 300)].filter(Boolean).join(" · ");
+  return `<span class="att-chip ${a.uploading ? "uploading" : ""}" title="${esc(tip)}">${a.uploading ? "⏳" : KIND_ICON[a.kind] || "📎"}
+    ${a.id && !a.uploading ? `<a href="/api/attachments/${a.id}" target="_blank" rel="noopener">${esc(a.name)}</a>` : esc(a.name)}
+    <span class="hint">${a.uploading ? "feltöltés…" : `${fmtSize(a.size || 0)}${a.truncated ? " · levágva" : ""}`}</span>
+    ${removable && !a.uploading ? `<button class="att-x" data-att-remove="${a.id}" title="Eltávolítás">×</button>` : ""}</span>`;
+}
+
+/** Chips of attachments referenced by a run (read-only). */
+export function attachmentList(ids) {
+  if (!ids || !ids.length) return "";
+  const all = new Map((state.project.attachments || []).map((a) => [a.id, a]));
+  return `<div class="att-list">📎 ${ids.map((id) => all.get(id) ? attachmentChip(all.get(id)) : `<span class="att-chip missing">törölt fájl</span>`).join("")}</div>`;
+}
+
+/** Upload area for a section. Use with bindAttach(). */
+export function attachBox(section) {
+  return `<div class="attach" data-attach="${section}">
+    <div class="att-row"><button class="btn small" type="button" data-att-pick>📎 Fájl csatolása</button>
+      <span class="hint">vagy húzd ide a fájlokat · szöveg, kód, JSON/CSV, DOCX, XLSX, PPTX, ODT, PDF, képek (max. 20 MB)</span></div>
+    <input type="file" multiple hidden data-att-input>
+    <div class="att-chips" data-att-chips></div></div>`;
+}
+
+export function draftIds(section) {
+  return (state.drafts[section] || []).filter((a) => a.id && !a.uploading).map((a) => a.id);
+}
+
+export function setDraft(section, ids) {
+  const all = new Map((state.project.attachments || []).map((a) => [a.id, a]));
+  state.drafts[section] = (ids || []).map((id) => all.get(id)).filter(Boolean);
+}
+
+export function bindAttach(root, section) {
+  const box = root.querySelector(`[data-attach="${section}"]`);
+  if (!box) return;
+  const input = box.querySelector("[data-att-input]");
+  const render = () => { box.querySelector("[data-att-chips]").innerHTML = (state.drafts[section] || []).map((a) => attachmentChip(a, true)).join(""); };
+  const upload = async (files) => {
+    for (const file of files) {
+      const temp = { name: file.name, size: file.size, uploading: true };
+      (state.drafts[section] ||= []).push(temp);
+      render();
+      try {
+        const r = await api.uploadAttachment(file);
+        Object.assign(temp, r.attachment, { uploading: false });
+        (state.project.attachments ||= []).push(r.attachment);
+        if (r.attachment.note) toast(`${r.attachment.name}: ${r.attachment.note}`, "warn", 6000);
+      } catch (e) {
+        state.drafts[section] = state.drafts[section].filter((x) => x !== temp);
+        showError(e, `Csatolás: ${file.name}`);
+      }
+      render();
+    }
+  };
+  box.querySelector("[data-att-pick]").onclick = () => input.click();
+  input.onchange = () => { upload([...input.files]); input.value = ""; };
+  const card = box.closest(".card") || box;
+  card.addEventListener("dragover", (e) => { e.preventDefault(); card.classList.add("dropping"); });
+  card.addEventListener("dragleave", (e) => { if (!card.contains(e.relatedTarget)) card.classList.remove("dropping"); });
+  card.addEventListener("drop", (e) => {
+    e.preventDefault();
+    card.classList.remove("dropping");
+    if (e.dataTransfer.files.length) upload([...e.dataTransfer.files]);
+  });
+  card.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) { e.preventDefault(); upload(files); }
+  });
+  box.addEventListener("click", (e) => {
+    const x = e.target.closest("[data-att-remove]");
+    if (x) { state.drafts[section] = (state.drafts[section] || []).filter((a) => a.id !== x.dataset.attRemove); render(); }
+  });
+  render();
+}
+
+/** Pick local files and add them to the project code (source or test files). */
+export function pickCodeFiles(onDone, { tests = false } = {}) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.onchange = async () => {
+    let ok = 0;
+    for (const f of input.files) {
+      let name = f.name;
+      if (tests && !/^test_|_test\.py$/.test(name)) name = "test_" + name;
+      try { await api.uploadCode(f, name); ok++; } catch (e) { showError(e, `Feltöltés: ${f.name}`); }
+    }
+    if (ok) toast(`${ok} fájl hozzáadva a kódhoz`, "ok");
+    onDone && onDone();
+  };
+  input.click();
 }
 
 export const CRITERIA = ["correctness", "completeness", "feasibility", "security", "performance", "testability"];

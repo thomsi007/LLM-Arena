@@ -1,7 +1,7 @@
 // Full flow: Task → analysis → decision → debate → design → code → test → fix → final.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs } from "../state.js";
-import { esc, toast, runningBanner, markdown, statusBadge, copyText, CRITERIA, CRITERIA_HU, list, lastFinishedError, exportHtmlBtn } from "../ui.js";
+import { esc, toast, runningBanner, markdown, statusBadge, copyText, CRITERIA, CRITERIA_HU, list, lastFinishedError, exportHtmlBtn, showError, errorBox, attachBox, bindAttach, draftIds, setDraft, attachmentList } from "../ui.js";
 
 let root;
 const ICON = { done: "✓", running: "…", error: "!", pending: "", cancelled: "×" };
@@ -35,6 +35,7 @@ export default {
       <p class="subtitle">Feladat → két LLM elemzése → közös döntés → vita → közös tervezés → kód → teszt → javítás → végleges megoldás.</p>
       <div class="card">
         <label class="field"><span>Feladat</span><textarea id="pl-task" rows="5" placeholder="pl. Készíts egy Python modult, amely CSV-ből beolvasott tranzakciókat kategorizál és havi összesítést készít.">${esc(pl.task || state.project.task || "")}</textarea></label>
+        ${attachBox("pipeline")}
         <div class="row"><span class="hint">Fejlesztő: LLM ${esc(state.project.settings.developer)} · moderátor: LLM ${esc(state.project.settings.moderator)} ·
           kódfuttatás: ${state.project.settings.allow_code_execution ? "engedélyezve" : "<b>kikapcsolva</b>"} (<a href="#settings" data-tab="settings" data-goto>beállítások</a>)</span>
           <span class="spacer"></span>
@@ -43,14 +44,17 @@ export default {
           <button class="btn primary" id="pl-start">▶ Teljes folyamat indítása</button></div>
       </div>
       <div id="pl-banner"></div><div id="pl-body"></div>`;
+    if (!state.drafts.pipeline) setDraft("pipeline", state.project.pipeline?.attachments);
+    bindAttach(root, "pipeline");
     root.querySelector("#pl-start").onclick = async () => {
       const task = root.querySelector("#pl-task").value.trim();
-      if (!task) { toast("Adj meg feladatot.", "warn"); return; }
+      const attachments = draftIds("pipeline");
+      if (!task && !attachments.length) { toast("Adj meg feladatot, vagy csatolj fájlt.", "warn"); return; }
       if (state.project.pipeline?.task && !confirm("Új folyamat indul – a vita és a terv felülíródik. Folytatod?")) return;
-      try { trackJob((await api.pipeline({ task })).job); } catch (e) { toast(e.message, "error"); }
+      try { trackJob((await api.pipeline({ task, attachments })).job); } catch (e) { showError(e, "Teljes folyamat"); }
     };
     root.querySelector("#pl-resume").onclick = async () => {
-      try { trackJob((await api.pipeline({ resume: true })).job); } catch (e) { toast(e.message, "error"); }
+      try { trackJob((await api.pipeline({ resume: true })).job); } catch (e) { showError(e, "Teljes folyamat"); }
     };
     root.addEventListener("click", (e) => { if (e.target.id === "pl-copy") copyText(state.project.final?.report || ""); });
   },
@@ -65,7 +69,8 @@ export default {
       <div class="step-head"><span class="ico">${ICON[st.status] ?? ""}</span><strong>${esc(st.label)}</strong><span class="spacer"></span>
       ${statusBadge(st.status)}<a class="btn small" href="#${LINK[k]}" data-tab="${LINK[k]}" data-goto>megnyitás →</a></div></div>`).join("") : "";
     root.querySelector("#pl-body").innerHTML = `
-      ${pl?.error && pl.status !== "done" ? `<div class="errbox">${esc(pl.error.label || "Hiba")}: ${esc(pl.error.message)} – a „Folytatás” gombbal az elakadt lépéstől folytatható.</div>` : lastFinishedError("pipeline")}
+      ${pl?.error && pl.status !== "done" ? errorBox({ ...pl.error, hint: (pl.error.hint ? pl.error.hint + " " : "") + "A „Folytatás / újrapróbálás” gombbal az elakadt lépéstől folytatható." }, "A folyamat leállt") : lastFinishedError("pipeline")}
+      ${attachmentList(pl?.attachments)}
       ${steps ? `<h2>Lépések ${statusBadge(pl.status)}</h2><div class="stepper">${steps}</div>` : '<div class="empty">Még nem futott teljes folyamat.</div>'}
       ${pl?.approach ? `<details class="plain mt"><summary>Közösen elfogadott megközelítés</summary><div class="card"><div class="md">${markdown(pl.approach)}</div></div></details>` : ""}
       <div class="mt">${finalHtml(state.project.final)}</div>`;
