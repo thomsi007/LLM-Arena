@@ -58,6 +58,8 @@ export const api = {
   config: () => request("GET", "/api/config"),
   saveConfig: (data) => request("POST", "/api/config", data),
   testLLM: (slot, config) => request("POST", `/api/llm/${slot}/test`, { config }),
+  browserTest: () => request("POST", "/api/web/browser-test"),
+  webCacheClear: () => request("POST", "/api/web/cache-clear"),
   webTest: (query) => request("POST", "/api/web/test", { query }),
   detectModels: (slot, config) => request("POST", `/api/llm/${slot}/models`, { config }),
 

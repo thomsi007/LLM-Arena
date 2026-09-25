@@ -81,11 +81,24 @@ function webCard() {
       <label class="field"><span>Max. eszközhívás / válasz</span><input type="number" min="0" max="12" data-setting="web_max_calls" value="${s.web_max_calls}"></label>
       <label class="field"><span>Tool-hívás módja</span>${sel("web_tool_mode", [["auto", "Automatikus (natív, ha megy)"], ["native", "Natív (OpenAI tools)"], ["text", "Szöveges (<tool_call>)"]])}</label>
     </div>
+    <div class="grid3">
+      <label class="field"><span>Találat / domain (ismétlődés-szűrés)</span><input type="number" min="1" max="5" data-setting="web_per_domain" value="${s.web_per_domain}"></label>
+      <label class="field"><span>Valódi böngésző (Playwright + stealth)</span>${sel("web_browser", [["fallback", "Tartalék – ha az egyszerű letöltés blokkolt (ajánlott)"], ["always", "Mindig böngészővel olvas"], ["off", "Kikapcsolva"]])}</label>
+      <label class="field"><span>Böngésző</span>${sel("web_browser_channel", [["auto", "Automatikus (Chromium → Edge → Chrome)"], ["chromium", "Playwright Chromium"], ["msedge", "Microsoft Edge (telepített)"], ["chrome", "Google Chrome (telepített)"]])}</label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Böngésző elérési útja (opcionális)</span><input type="text" data-setting="web_browser_path" value="${esc(s.web_browser_path)}" placeholder="pl. C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"></label>
+      <label class="check" style="margin-top:14px"><input type="checkbox" data-setting="web_browser_headless" ${s.web_browser_headless ? "checked" : ""}> Láthatatlan (headless)</label>
+      <button class="btn" id="browser-test" style="margin-top:12px">🧭 Böngésző tesztelése</button>
+      <button class="btn ghost" id="web-cache" style="margin-top:12px" title="Keresési és oldal-gyorsítótár ürítése">Gyorsítótár ürítése</button>
+    </div>
+    <div class="web-results" id="browser-results"></div>
     <label class="check"><input type="checkbox" data-setting="web_allow_private" ${s.web_allow_private ? "checked" : ""}> Helyi hálózati címek (localhost, LAN) lekérésének engedélyezése</label>
     <div class="row mt"><input type="text" id="web-q" placeholder="Próba-keresés, pl. llama.cpp latest release" style="flex:1">
       <button class="btn" id="web-test">🔎 Keresés tesztelése</button></div>
     <div class="web-results" id="web-results"></div>
-    <p class="hint">Natív tool-híváshoz a llama-servert <code>--jinja</code> kapcsolóval indítsd. Ha a szerver nem támogatja, a program automatikusan szöveges protokollra vált.</p>
+    <p class="hint">Natív tool-híváshoz a llama-servert <code>--jinja</code> kapcsolóval indítsd. Ha a szerver nem támogatja, a program automatikusan szöveges protokollra vált.<br>
+      Böngésző telepítése: <code>pip install playwright playwright-stealth</code>, majd <code>python -m playwright install chromium</code> – vagy válaszd a gépen lévő Edge/Chrome böngészőt.</p>
   </div>`;
 }
 
@@ -136,6 +149,30 @@ export default {
     });
     root.addEventListener("change", (e) => { if (e.target.type === "checkbox" || e.target.tagName === "SELECT") save(true); });
     root.addEventListener("click", async (e) => {
+      if (e.target.id === "web-cache") {
+        try { await api.webCacheClear(); toast("Webes gyorsítótár ürítve", "ok"); } catch (err) { showError(err, "Gyorsítótár"); }
+        return;
+      }
+      if (e.target.id === "browser-test") {
+        const out = root.querySelector("#browser-results");
+        e.target.disabled = true;
+        out.innerHTML = '<span class="hint">Böngésző indítása… (első alkalommal akár 10–20 s)</span>';
+        try {
+          await save(true);
+          const r = (await api.browserTest()).result;
+          if (!r.playwright) {
+            out.innerHTML = errorBox({ label: "A Playwright nincs telepítve", message: "A valódi böngészős olvasáshoz telepíteni kell.",
+              hint: "pip install playwright playwright-stealth  →  python -m playwright install chromium (vagy válaszd az Edge/Chrome böngészőt)." });
+          } else if (!r.ok) {
+            out.innerHTML = errorBox({ label: "A böngésző nem indult el", message: r.error || "ismeretlen hiba",
+              hint: "Futtasd: python -m playwright install chromium, vagy állítsd a Böngésző mezőt Edge/Chrome-ra, esetleg add meg az elérési utat." });
+          } else {
+            out.innerHTML = `<div class="hint">✅ Böngésző: <b>${esc(r.browser)}</b> · stealth: ${r.stealth_active ? "aktív" : r.stealth ? "telepítve, de nem alkalmazva" : "<b>nincs telepítve</b> (pip install playwright-stealth)"} ·
+              navigator.webdriver: ${esc(String(r.webdriver))}</div><div class="hint mono">${esc(r.ua || "")}</div>`;
+          }
+        } catch (err) { out.innerHTML = errorBox(err, "Böngészőteszt"); } finally { e.target.disabled = false; }
+        return;
+      }
       if (e.target.id === "web-test") {
         const out = root.querySelector("#web-results");
         e.target.disabled = true;
@@ -144,9 +181,11 @@ export default {
           await save(true);
           const r = (await api.webTest(root.querySelector("#web-q").value)).result;
           out.innerHTML = r.ok
-            ? `<div class="hint">✅ ${esc(r.summary)} (${r.duration}s)</div>` + r.sources.map((s, i) => `<a href="${esc(/^https?:/i.test(s.url) ? s.url : "#")}" target="_blank" rel="noopener noreferrer">[${i + 1}] ${esc(s.title)}</a>`).join("")
-            : errorBox({ kind: "web", label: "A keresés nem sikerült", message: r.summary,
-                hint: "Ellenőrizd az internetkapcsolatot / proxyt, vagy válts keresőmotort (SearXNG, Brave)." });
+            ? `<div class="hint">✅ ${esc(r.summary)} (${r.duration}s)</div>`
+              + ((r.attempts || []).length ? `<div class="hint">Tartalékra váltott: ${(r.attempts || []).map((a) => `${esc(a.backend)} – ${esc(a.error)}`).join("; ")}</div>` : "")
+              + r.sources.map((s, i) => `<a href="${esc(/^https?:/i.test(s.url) ? s.url : "#")}" target="_blank" rel="noopener noreferrer">[${i + 1}] ${esc(s.title)}</a>`).join("")
+            : errorBox({ kind: "web", label: "A keresés nem sikerült", message: r.summary, detail: r.error,
+                hint: "Ellenőrizd az internetkapcsolatot / proxyt. Tartós blokkolásnál használj saját SearXNG-t vagy Brave API-kulcsot; a böngészős tartalékhoz telepítsd a Playwrightot." });
         } catch (err) { out.innerHTML = errorBox(err, "Webes keresés"); } finally { e.target.disabled = false; }
         return;
       }

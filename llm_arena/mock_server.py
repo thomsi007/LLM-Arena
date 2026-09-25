@@ -239,7 +239,15 @@ class MockLlama:
                 msgs = body.get("messages", [])
                 last_user = next((m.get("content", "") for m in reversed(msgs) if m.get("role") == "user"), "")
                 got_result = any(m.get("role") == "tool" for m in msgs) or "<tool_response" in last_user
-                if "LIVE_INFO" in json.dumps(msgs) and not got_result:
+                forced = "Do not call tools again" in json.dumps(msgs) or "without calling tools" in json.dumps(msgs)
+                if mock.mode == "tool_loop" and not forced:
+                    # A stubborn model: always asks for the same search until told to stop.
+                    tool_calls = [{"id": f"call_{len(msgs)}", "type": "function", "function": {
+                        "name": "web_search", "arguments": json.dumps({"query": "same query"})}}]
+                    text = ""
+                elif mock.mode == "tool_loop":
+                    text = "Végső válasz a saját tudásom alapján (élő adat nem volt elérhető)."
+                elif "LIVE_INFO" in json.dumps(msgs) and not got_result:
                     if body.get("tools") and mock.mode != "no_native_tools":
                         tool_calls = [{"id": "call_1", "type": "function", "function": {
                             "name": "web_search", "arguments": json.dumps({"query": "llama.cpp release"})}}]

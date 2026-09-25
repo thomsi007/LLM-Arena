@@ -208,6 +208,11 @@ class WorkflowContext:
         totals = {"latency": 0.0, "tokens": 0, "prompt": 0}
         calls_done = 0
         forced_final = False
+        seen_calls: dict[tuple, dict] = {}   # identical repeated calls are answered from memory
+        failed_rounds = 0                    # consecutive rounds where every tool call failed
+        final_nudges = 0
+        web_budget = max(4000, int(cfg.context_chars * 0.55))   # total web text per answer
+        web_used = 0
         try:
             while True:
                 allow = use_tools and calls_done < max_calls and not forced_final
@@ -236,7 +241,8 @@ class WorkflowContext:
                     calls += text_calls
                 if not calls:
                     if not result.content.strip():
-                        if use_tools and not forced_final:
+                        if use_tools and final_nudges < 2:
+                            final_nudges += 1
                             forced_final = True
                             messages = messages + [{"role": "user", "content":
                                                     "Give your final answer now, without calling tools."}]
@@ -244,7 +250,13 @@ class WorkflowContext:
                         raise EmptyResponse("A modell üres választ adott.")
                     break
                 if not allow:
-                    # Tool budget exhausted but the model still wants tools: force a final answer.
+                    # Tool budget exhausted but the model still wants tools: force a final answer
+                    # (bounded – a model that keeps calling tools gets its text accepted as is).
+                    final_nudges += 1
+                    if final_nudges > 2:
+                        if result.content.strip():
+                            break
+                        raise EmptyResponse("A modell az eszközkeret elfogyása után sem adott végső választ.")
                     forced_final = True
                     messages = messages + [{"role": "assistant", "content": result.content or "(tool call)"},
                                            {"role": "user", "content": "Tool budget exhausted. Give your final "
@@ -261,15 +273,45 @@ class WorkflowContext:
                         msg["tool_calls"].append(rec)
                     self.job.emit("tool", msg_id=msg["id"], call=dict(rec))
                     label = c["arguments"].get("query") or c["arguments"].get("url") or ""
-                    self.log("info", f"LLM {slot} eszközhívás: {c['name']}({label})")
-                    r = tool_mod.execute(c["name"], c["arguments"], web_cfg, max_chars=fetch_chars)
+                    key = tool_mod.call_key(c["name"], c["arguments"])
+                    if key in seen_calls:
+                        prev = seen_calls[key]
+                        r = dict(prev, content="(Same call as before – result unchanged. Do not repeat it; use the "
+                                               "information you already have.)\n" + prev["content"][:600],
+                                 summary="ismételt hívás – korábbi eredmény", duration=0.0)
+                        self.log("info", f"LLM {slot} ismételt eszközhívás kiszolgálva memóriából: {c['name']}({label})")
+                    else:
+                        self.log("info", f"LLM {slot} eszközhívás: {c['name']}({label})")
+                        remaining = max(1500, web_budget - web_used)
+                        r = tool_mod.execute(c["name"], c["arguments"], web_cfg,
+                                             max_chars=min(fetch_chars, remaining))
+                        seen_calls[key] = r
+                        if c["name"] == "web_search" and r["ok"]:
+                            web_cfg["last_query"] = c["arguments"].get("query") or ""
+                        if not r["ok"]:
+                            self.log("warning", f"LLM {slot} eszközhiba ({c['name']}): {r['summary'][:300]}")
+                    web_used += len(r["content"])
                     with self.store.mutate():
                         rec.update(status="done" if r["ok"] else "error", summary=r["summary"],
-                                   sources=r["sources"], duration=r["duration"], error=r.get("error"))
+                                   sources=r["sources"], duration=r["duration"], error=r.get("error"),
+                                   via=r.get("via"), backend=r.get("backend"))
                     self.job.emit("tool", msg_id=msg["id"], call=dict(rec))
                     results.append(r)
                     calls_done += 1
+                failed_rounds = failed_rounds + 1 if all(not r["ok"] for r in results) else 0
+                messages = tool_mod.shrink_old_tool_output(messages)
                 messages = messages + tool_mod.as_tool_messages(calls, results, not text_mode, result.content)
+                if failed_rounds >= 2 or web_used >= web_budget:
+                    # Stop the tool loop: repeated failures or enough material – answer now.
+                    forced_final = True
+                    reason = ("The web tools are failing right now. Do not call tools again. Answer from your own "
+                              "knowledge and clearly state that live data could not be retrieved."
+                              if failed_rounds >= 2 else
+                              "You have gathered enough web material. Do not call tools again; write the final "
+                              "answer now, citing the sources you used.")
+                    messages = messages + [{"role": "user", "content": reason}]
+                    self.log("warning" if failed_rounds >= 2 else "info",
+                             f"LLM {slot}: eszközhasználat lezárva ({'ismételt hibák' if failed_rounds >= 2 else 'webes keret elérve'}).")
                 self.job.emit("msg_reset", msg_id=msg["id"])
         except Cancelled as e:
             flush()

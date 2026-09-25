@@ -45,6 +45,11 @@ def default_settings() -> dict:
         "web_max_calls": 4,               # tool calls per answer
         "web_tool_mode": "auto",          # auto | native | text
         "web_allow_private": False,       # allow fetch_url to reach LAN / localhost
+        "web_per_domain": 2,              # max results per domain
+        "web_browser": "fallback",        # off | fallback | always  (Playwright + stealth)
+        "web_browser_channel": "auto",    # auto | chromium | msedge | chrome
+        "web_browser_path": "",           # optional browser executable
+        "web_browser_headless": True,
     }
 
 

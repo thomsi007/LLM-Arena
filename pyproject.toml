@@ -5,6 +5,10 @@ description = "Local LLM Arena: two llama-server models compete, debate, design,
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+browser = ["playwright>=1.40", "playwright-stealth>=1.0"]
+pdf = ["pypdf>=4"]
+
 [project.scripts]
 llm-arena = "llm_arena.__main__:main"
 

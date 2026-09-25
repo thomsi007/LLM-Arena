@@ -110,18 +110,44 @@ Minden hiba egységes, érthető formában jelenik meg: **mi történt** (cím),
 **Másolás** gomb a hibajelentéshez. A felugró hibák addig maradnak, amíg be nem zárod; a munkafolyamatok
 hibái a fülön is megmaradnak, a „Folytatás / újrapróbálás” gombbal az elakadt lépéstől folytathatók.
 
-### Webes keresés
+### Webes keresés és böngészés
 
-* **Natív tool-hívás** (OpenAI `tools`): a llama-servert `--jinja` kapcsolóval indítsd. Ha a szerver elutasítja a
-  `tools` paramétert, a program automatikusan a szöveges `<tool_call>{...}</tool_call>` protokollra vált (ezt a
-  Qwen/Hermes-stílusú modellek natívan ismerik). A mód a beállításokban rögzíthető is.
-* A modell válaszonként legfeljebb „Max. eszközhívás” keresést/letöltést végezhet; utána válaszolnia kell.
-* A rendszerprompt tartalmazza az aktuális dátumot, és forrásmegjelölést (`[1]`, URL-ek) kér.
-* **Biztonság:** a `fetch_url` csak http/https címet kér le, alapból tiltja a belső hálózati címeket (localhost, LAN,
-  link-local – minden átirányításnál újra ellenőrizve), 2 MB és 15 s korláttal. Egy sikertelen keresés nem állítja le
-  a munkafolyamatot: a modell megkapja a hibát, és a meglévő tudásával válaszol.
-* A DuckDuckGo HTML-oldalát elemzi (API-kulcs nélkül); sűrű használatnál korlátozhat – ilyenkor ajánlott egy saját
-  SearXNG példány (`format: json` engedélyezve) vagy a Brave Search API.
+**Keresés – hibatűrő lánc:** a beállított keresőmotor → DuckDuckGo → DuckDuckGo lite → valódi böngésző
+(DuckDuckGo) → SearXNG / Brave (ha be van állítva) → Wikipedia. Átmeneti hibánál (időtúllépés, 5xx) újrapróbál,
+robotellenőrző / captcha oldalt felismer és a következő szolgáltatóra lép, hosztonként ritkítja a kéréseket, és
+15 percig gyorsítótárazza a kereséseket (az oldalakat 30 percig).
+
+**Találatszűrés:** URL-normalizálás (követőparaméterek – `utm_*`, `fbclid`, `gclid` … – törlése), duplikátumok és
+hirdetések kiszűrése, relevancia szerinti rangsor (kulcsszó-egyezés, megbízható források enyhe előnye, alacsony
+értékű oldalak hátránya), domainenként legfeljebb 2 találat, a nem releváns találatok elhagyása, tisztított kivonatok.
+
+**Oldalolvasás:** először gyors HTTP-letöltés; ha az oldal JavaScriptes, kevés szöveget ad vagy robotfalat mutat,
+automatikusan a **Playwright + playwright-stealth** böngészővel olvassa újra (vagy „Mindig” módban eleve azzal).
+A fő tartalmat (`<main>`/`<article>`) veszi ki, eldobja a menüt, sütibannert, megosztó gombokat, ismétlődő sorokat,
+PDF-ből is kinyeri a szöveget (pypdf-fel), és a modell `focus` kérdése szerint a legrelevánsabb bekezdéseket adja át.
+
+**Hogy a hiba ne vigye félre a modellt:**
+* a modell hibánál csak **egy rövid sort** kap („átmeneti hiba, próbálj más kulcsszót egyszer, vagy válaszolj a saját
+  tudásodból”); a részletek a felületen, az eszközhívás kártyáján és a Naplóban látszanak;
+* az **ismételt, azonos hívást** memóriából szolgálja ki (nem keres újra);
+* **két egymás utáni sikertelen kör után** leállítja az eszközhasználatot, és a modell a saját tudásából válaszol,
+  jelezve, hogy élő adat nem volt elérhető;
+* a válaszonkénti **webes tartalom teljes mennyisége korlátozott**, a korábbi eszközkimenetek rövidülnek;
+* a webes tartalomból eltávolítja a chat-sablon tokeneket és a tipikus prompt-injekciós mondatokat, és külső,
+  nem megbízható forrásként jelöli.
+
+**Böngésző telepítése (opcionális):**
+```bash
+pip install playwright playwright-stealth
+python -m playwright install chromium     # vagy Beállítások → Böngésző: Microsoft Edge / Google Chrome
+```
+Windowson az Edge általában telepítve van, így a „Microsoft Edge” csatornával a `playwright install` el is hagyható.
+A Beállításokban a „🧭 Böngésző tesztelése” gomb megmutatja, melyik böngésző indult, és aktív-e a stealth.
+
+* **Natív tool-hívás** (OpenAI `tools`): a llama-servert `--jinja` kapcsolóval indítsd. Ha a szerver elutasítja,
+  a program automatikusan a szöveges `<tool_call>{...}</tool_call>` protokollra vált.
+* **Biztonság:** a `fetch_url` (és a böngésző navigációja is) alapból tiltja a belső hálózati címeket; csak http/https;
+  méret- és időkorlát.
 
 ### Tippek helyi modellekhez
 
@@ -138,6 +164,6 @@ hibái a fülön is megmaradnak, a „Folytatás / újrapróbálás” gombbal a
 python3 -m unittest discover -s tests -t .
 ```
 
-74 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
+88 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
 újrapróbálás), parserek, sandbox (időtúllépés, importhiba), munkafolyamatok (aréna hibaizoláció, vita folytatása hiba
 után, teljes pipeline javító ciklussal), mentés/export/import, HTTP API + SSE.

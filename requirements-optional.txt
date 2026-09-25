@@ -1,0 +1,4 @@
+# Optional extras – the app itself needs only the Python standard library.
+playwright>=1.40          # real browser for JS / bot-protected pages (then: python -m playwright install chromium)
+playwright-stealth>=1.0   # hides automation fingerprints in that browser
+pypdf>=4                  # text from PDF attachments / PDF web pages

@@ -189,6 +189,23 @@ class Handler(BaseHTTPRequestHandler):
         self.app.store.log("info" if r["ok"] else "error", f"Webes keresés teszt: {r['summary']}", source="web")
         self._json({"ok": True, "result": r})
 
+    @route("POST", "/api/web/browser-test")
+    def api_web_browser_test(self):
+        from . import tools
+        from .tools import browser
+        cfg = tools.web_config(self.app.store.settings())
+        st = browser.status(tools.web._browser_cfg(cfg), probe=True)
+        self.app.store.log("info" if st.get("ok") else "warning",
+                           f"Böngészőteszt: {'OK – ' + st.get('browser', '') if st.get('ok') else st.get('error', 'nincs telepítve')}",
+                           source="web")
+        self._json({"ok": True, "result": st})
+
+    @route("POST", "/api/web/cache-clear")
+    def api_web_cache_clear(self):
+        from .tools import web
+        web.cache_clear()
+        self._json({"ok": True})
+
     @route("POST", "/api/llm/(?P<slot>[AB])/models")
     def api_llm_models(self, slot):
         self._json({"ok": True, **self.app.detect_models(slot, self._body().get("config"))})

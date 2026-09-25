@@ -37,6 +37,11 @@ class ArenaApp:
 
     def shutdown(self) -> None:
         self._stop.set()
+        try:
+            from .tools import browser
+            browser.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
         self.jobs.cancel_all()
         self.store.autosave()
 
@@ -223,6 +228,11 @@ class ArenaApp:
                     s["web_backend"] = "duckduckgo"
                 if s["web_tool_mode"] not in ("auto", "native", "text"):
                     s["web_tool_mode"] = "auto"
+                if s["web_browser"] not in ("off", "fallback", "always"):
+                    s["web_browser"] = "fallback"
+                if s["web_browser_channel"] not in ("auto", "chromium", "msedge", "chrome"):
+                    s["web_browser_channel"] = "auto"
+                s["web_per_domain"] = max(1, min(int(s["web_per_domain"]), 5))
                 for k in ("developer", "moderator"):
                     if s[k] not in SLOTS:
                         s[k] = "A"
