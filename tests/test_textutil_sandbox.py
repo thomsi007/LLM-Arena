@@ -81,5 +81,58 @@ class SandboxTest(unittest.TestCase):
         self.assertEqual(sandbox.categorize("test_unit.TestUnit.test_add", "test_unit.py"), "unit")
 
 
+
+class AtomicWriteTest(unittest.TestCase):
+    def test_retries_when_target_locked_and_cleans_tmp(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from llm_arena import project
+
+        d = Path(tempfile.mkdtemp())
+        target = d / "settings.json"
+        real = os.replace
+        calls = {"n": 0}
+
+        def flaky(src, dst):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise PermissionError(5, "Access is denied")
+            return real(src, dst)
+
+        with mock.patch.object(project.os, "replace", side_effect=flaky):
+            project._atomic_write(target, '{"a": 1}')
+        self.assertEqual(target.read_text("utf-8"), '{"a": 1}')
+        self.assertEqual(calls["n"], 3)
+        with mock.patch.object(project.os, "replace", side_effect=PermissionError(5, "denied")):
+            project._atomic_write(target, '{"b": 2}')  # falls back to in-place write
+        self.assertEqual(target.read_text("utf-8"), '{"b": 2}')
+        self.assertEqual(list(d.glob("*.tmp")), [])
+
+    def test_concurrent_saves(self):
+        import tempfile
+        import threading
+        from llm_arena.project import ProjectStore
+
+        store = ProjectStore(tempfile.mkdtemp())
+        errors = []
+
+        def worker():
+            try:
+                for _ in range(20):
+                    store.save_defaults()
+                    store.save()
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()

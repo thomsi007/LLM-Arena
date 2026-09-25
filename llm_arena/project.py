@@ -114,7 +114,11 @@ class ProjectStore:
     def save_defaults(self) -> None:
         with self.lock:
             data = {"llms": self.project["llms"], "settings": self.project["settings"]}
-        _atomic_write(self.settings_file, json.dumps(data, ensure_ascii=False, indent=1))
+        try:
+            _atomic_write(self.settings_file, json.dumps(data, ensure_ascii=False, indent=1))
+        except OSError as e:
+            # The configuration is already applied in memory; only the defaults file failed.
+            self.log("warning", f"Az alapbeállítások fájlba írása sikertelen ({self.settings_file}): {e}")
 
     # -------------------------------------------------------------- accessors
     def snapshot(self) -> dict:
@@ -308,8 +312,33 @@ def unified_diff(before: dict[str, str], after: dict[str, str], limit: int = 600
     return text if len(text) <= limit else text[:limit] + "\n... (diff rövidítve)\n"
 
 
-def _atomic_write(path: Path, text: str) -> None:
+_WRITE_LOCK = threading.Lock()
+
+
+def _atomic_write(path: Path, text: str, attempts: int = 8) -> None:
+    """Write via temp file + rename, serialized across threads.
+
+    On Windows ``os.replace`` fails with "Access is denied" while another
+    process (antivirus, indexer, editor) briefly holds the target open, so it
+    is retried with a short back-off; as a last resort the file is written in place.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex[:6]}.tmp")
-    tmp.write_text(text, "utf-8")
-    os.replace(tmp, path)
+    with _WRITE_LOCK:
+        tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex[:6]}.tmp")
+        tmp.write_text(text, "utf-8")
+        try:
+            for i in range(attempts):
+                try:
+                    os.replace(tmp, path)
+                    return
+                except PermissionError:
+                    if i == attempts - 1:
+                        break
+                    time.sleep(0.05 * (i + 1))
+            path.write_text(text, "utf-8")  # may still raise – callers handle it
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
