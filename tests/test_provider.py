@@ -149,6 +149,13 @@ class ProviderTest(unittest.TestCase):
             self.prov(stream=False).chat([{"role": "user", "content": "x"}])
         self.assertEqual(cm.exception.detail, "reasoning_only")
 
+    def test_full_endpoint_url_is_accepted(self):
+        from llm_arena.providers.base import normalize_base_url
+        self.assertEqual(normalize_base_url("http://localhost:8081/v1/chat/completions"), "http://localhost:8081/v1")
+        self.assertEqual(normalize_base_url("localhost:8082/"), "http://localhost:8082")
+        r = self.prov(base_url=self.mock.url + "/v1/chat/completions").chat([{"role": "user", "content": "x"}])
+        self.assertIn("unit-model", r.content)
+
     def test_think_tags_are_split(self):
         from llm_arena.providers.openai_compat import split_thinking
         content, think = split_thinking("<think>plan</think>Answer")

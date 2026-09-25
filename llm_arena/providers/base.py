@@ -66,6 +66,7 @@ class LLMConfig:
         cfg.retries = max(0, min(cfg.retries, 5))
         cfg.temperature = max(0.0, min(cfg.temperature, 2.0))
         cfg.context_chars = max(2000, cfg.context_chars)
+        cfg.base_url = normalize_base_url(cfg.base_url)
         return cfg
 
     def to_dict(self, include_secret: bool = True) -> dict:
@@ -77,6 +78,16 @@ class LLMConfig:
     @property
     def wants_autodetect(self) -> bool:
         return not self.model or self.model.strip().lower() == "auto"
+
+
+def normalize_base_url(url: str) -> str:
+    """Accept what users paste: full endpoint URLs, trailing slashes, missing scheme."""
+    import re
+    u = (url or "").strip().rstrip("/")
+    u = re.sub(r"/(chat/completions|completions|models|embeddings)$", "", u, flags=re.I)
+    if u and not re.match(r"^https?://", u, re.I):
+        u = "http://" + u
+    return u
 
 
 # --------------------------------------------------------------------------- #
