@@ -157,6 +157,11 @@ export function lastFinishedError(kind) {
   return "";
 }
 
+/** Download link for the styled, self-contained HTML report of a section. */
+export function exportHtmlBtn(section, label = "⤓ HTML export") {
+  return `<a class="btn" href="/api/export/html?section=${section}" title="Szépen formázott, önálló HTML fájl (böngészőben megnyitható, nyomtatható PDF-be)">${label}</a>`;
+}
+
 export const CRITERIA = ["correctness", "completeness", "feasibility", "security", "performance", "testability"];
 export const CRITERIA_HU = {
   correctness: "Helyesség", completeness: "Teljesség", feasibility: "Megvalósíthatóság",

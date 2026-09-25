@@ -1,7 +1,7 @@
 // Full flow: Task → analysis → decision → debate → design → code → test → fix → final.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs } from "../state.js";
-import { esc, toast, runningBanner, markdown, statusBadge, copyText, CRITERIA, CRITERIA_HU, list, lastFinishedError } from "../ui.js";
+import { esc, toast, runningBanner, markdown, statusBadge, copyText, CRITERIA, CRITERIA_HU, list, lastFinishedError, exportHtmlBtn } from "../ui.js";
 
 let root;
 const ICON = { done: "✓", running: "…", error: "!", pending: "", cancelled: "×" };
@@ -13,7 +13,7 @@ function finalHtml(f) {
   const audit = f.audit;
   return `<div class="card"><div class="card-head"><h2>🏁 Végleges megoldás</h2><span class="badge">${f.source === "pipeline" ? "teljes folyamat" : "programtervezés"}</span>
       <span class="spacer"></span>${f.report ? '<button class="btn small" id="pl-copy">Másolás</button>' : ""}
-      <a class="btn small" href="/api/code/download">⤓ Kód (ZIP)</a><a class="btn small" href="/api/export/conversation?format=md">⤓ Beszélgetés</a></div>
+      <a class="btn small" href="/api/export/html?section=pipeline">⤓ HTML</a><a class="btn small" href="/api/code/download">⤓ Kód (ZIP)</a><a class="btn small" href="/api/export/conversation?format=md">⤓ Beszélgetés</a></div>
     <div class="stats">
       <div class="stat"><div class="v">v${f.version ?? "–"}</div><div class="k">Kódverzió (${(f.files || []).length} fájl)</div></div>
       ${tr ? `<div class="stat ok"><div class="v">${tr.passed}</div><div class="k">Sikeres teszt</div></div>
@@ -38,6 +38,7 @@ export default {
         <div class="row"><span class="hint">Fejlesztő: LLM ${esc(state.project.settings.developer)} · moderátor: LLM ${esc(state.project.settings.moderator)} ·
           kódfuttatás: ${state.project.settings.allow_code_execution ? "engedélyezve" : "<b>kikapcsolva</b>"} (<a href="#settings" data-tab="settings" data-goto>beállítások</a>)</span>
           <span class="spacer"></span>
+          ${exportHtmlBtn("all", "⤓ Teljes riport (HTML)")}
           <button class="btn" id="pl-resume">↻ Folytatás / újrapróbálás</button>
           <button class="btn primary" id="pl-start">▶ Teljes folyamat indítása</button></div>
       </div>

@@ -47,6 +47,7 @@ python3 -m llm_arena
 | **Tesztelés** | Fejlesztő: unit + integrációs; reviewer: edge-case, hibakezelési, teljesítménytesztek. Bukásnál mindkét modell elemzi a hibát, a fejlesztő javít (kódot, vagy ha a teszt hibás, a tesztet), újrafuttatás – max. iterációig. Kimutatás: sikeres/sikertelen tesztek, javított hibák, fennmaradó problémák, végleges kód. |
 | **Közös döntés** | Nem győztes–vesztes: mindkét modell mindkét *anonimizált* megoldást pontozza (helyesség, teljesség, megvalósíthatóság, biztonság, teljesítmény, tesztelhetőség), szempontonkénti átlagok, erősségek/gyengeségek, átvett legjobb ötletek, majd **közösen összeállított megoldás**, amit a másik modell ellenőriz. |
 | **Teljes folyamat** | A fenti lépések automatikusan egymás után, folytatható állapottal, végleges jelentéssel. |
+| **HTML export** | Minden fontos fülön „⤓ HTML export” gomb (Aréna, Vita, Programtervezés, Kód, Tesztelés, Közös döntés, Teljes folyamat), a Projekt fülön teljes riport. Önálló, modern, jól olvasható HTML fájl: beágyazott stílus, világos/sötét téma automatikusan, nyomtatható PDF-be; a modellválaszok biztonságosan escape-elve. |
 | **Napló** | Minden hívás, hiba, újrapróbálás, teszteredmény; szűrés, letöltés. |
 | **Projekt** | Mentés, betöltés, új projekt, export/import (`.arena.json`, API-kulcsok opcionálisan), beszélgetés exportja (Markdown/JSON), kód ZIP. Automatikus mentés 10 mp-enként és minden folyamat végén. |
 

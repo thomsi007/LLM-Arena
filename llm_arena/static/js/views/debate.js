@@ -1,7 +1,7 @@
 // Structured debate: A proponent vs B critic, ledger + synthesis.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs } from "../state.js";
-import { esc, toast, messageCard, runningBanner, list, statusBadge, lastFinishedError, markdown } from "../ui.js";
+import { esc, toast, messageCard, runningBanner, list, statusBadge, lastFinishedError, markdown, exportHtmlBtn } from "../ui.js";
 
 let root;
 const PHASE = { position: "Álláspont", critique: "Kritika", rebuttal: "Válasz a kritikára", counter: "Válasz az új érvekre" };
@@ -74,6 +74,7 @@ export default {
         <div class="row">
           <label class="field" style="max-width:140px"><span>Körök száma</span><input type="number" id="deb-rounds" min="1" max="8" value="${s.debate_rounds}"></label>
           <span class="spacer"></span>
+          ${exportHtmlBtn("debate")}
           <button class="btn" id="deb-resume">↻ Folytatás / újrapróbálás</button>
           <button class="btn primary" id="deb-start">▶ Új vita indítása</button>
         </div>

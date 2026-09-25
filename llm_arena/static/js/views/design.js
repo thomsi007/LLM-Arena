@@ -1,7 +1,7 @@
 // Collaborative Coding / Program Designer: 11-stage developer + reviewer workflow.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs } from "../state.js";
-import { esc, toast, messageCard, runningBanner, statusBadge, markdown, jsonBlock, lastFinishedError } from "../ui.js";
+import { esc, toast, messageCard, runningBanner, statusBadge, markdown, jsonBlock, lastFinishedError, exportHtmlBtn } from "../ui.js";
 
 let root;
 const open = new Set();
@@ -57,6 +57,7 @@ export default {
             <option value="B" ${s.developer === "B" ? "selected" : ""}>LLM B fejleszt, LLM A review</option></select></label>
           <label class="check"><input type="checkbox" id="des-tests" checked> Tesztek futtatása + javító ciklus</label>
           <span class="spacer"></span>
+          ${exportHtmlBtn("design")}
           <button class="btn" id="des-resume">↻ Folytatás / újrapróbálás</button>
           <button class="btn primary" id="des-start">▶ Tervezés indítása</button>
         </div>

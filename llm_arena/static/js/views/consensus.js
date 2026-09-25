@@ -1,7 +1,7 @@
 // Joint decision: criterion scores, best ideas, combined solution.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs } from "../state.js";
-import { esc, toast, runningBanner, markdown, list, fmtDate, statusBadge, messageCard, CRITERIA, CRITERIA_HU, slotBadge, copyText, lastFinishedError } from "../ui.js";
+import { esc, toast, runningBanner, markdown, list, fmtDate, statusBadge, messageCard, CRITERIA, CRITERIA_HU, slotBadge, copyText, lastFinishedError, exportHtmlBtn } from "../ui.js";
 
 let root;
 const SRC = { pipeline_analysis: "Teljes folyamat – elemzések", design_architecture: "Programtervezés – architektúra" };
@@ -44,6 +44,7 @@ export default {
     root.innerHTML = `<h1>Közös döntés</h1>
       <p class="subtitle">Összehasonlítási szempontok: helyesség, teljesség, műszaki megvalósíthatóság, biztonság, teljesítmény, tesztelhetőség. Indítható az Aréna bármely köréről; a programtervezés és a teljes folyamat automatikusan használja.</p>
       <div class="card"><div class="row"><span class="hint">Döntés az utolsó aréna körről:</span><span class="spacer"></span>
+        ${exportHtmlBtn("consensus")}
         <button class="btn primary" id="cons-last">⚖ Közös döntés indítása</button></div></div>
       <div id="cons-banner"></div><div id="cons-body"></div>`;
     root.querySelector("#cons-last").onclick = async () => {

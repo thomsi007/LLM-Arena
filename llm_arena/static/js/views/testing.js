@@ -1,7 +1,7 @@
 // Automatic testing: generate → run → analyse → fix loop, with results.
 import { api } from "../api.js";
 import { state, trackJob, runningJobs, refresh } from "../state.js";
-import { esc, toast, runningBanner, statusBadge, fmtDate, messageCard, lastFinishedError, slotBadge } from "../ui.js";
+import { esc, toast, runningBanner, statusBadge, fmtDate, messageCard, lastFinishedError, slotBadge, exportHtmlBtn } from "../ui.js";
 
 let root;
 let showTb = new Set();
@@ -48,6 +48,7 @@ export default {
       <div class="card"><div class="row">
         <label class="field" style="max-width:180px"><span>Max. javító iteráció</span><input type="number" id="t-iter" min="0" max="10" value="${state.project.settings.max_fix_iterations}"></label>
         <span class="spacer"></span>
+        ${exportHtmlBtn("testing")}
         <button class="btn" data-t="generate">🧪 Tesztek generálása</button>
         <button class="btn" data-t="run">▶ Tesztek futtatása</button>
         <button class="btn primary" data-t="loop">⟳ Teszt → javítás ciklus</button>

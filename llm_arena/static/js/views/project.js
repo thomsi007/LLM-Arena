@@ -1,7 +1,7 @@
 // Session / project management: save, load, new, export, import.
 import { api } from "../api.js";
 import { state, refresh } from "../state.js";
-import { esc, toast, fmtDate } from "../ui.js";
+import { esc, toast, fmtDate, exportHtmlBtn } from "../ui.js";
 import { probeConnections } from "../app.js";
 
 let root;
@@ -51,7 +51,11 @@ export default {
           <div class="row mt"><button class="btn" id="proj-export">⤓ Projekt (JSON)</button>
             <a class="btn" href="/api/export/conversation?format=md">⤓ Beszélgetés (Markdown)</a>
             <a class="btn" href="/api/export/conversation?format=json">⤓ Beszélgetés (JSON)</a>
-            <a class="btn" href="/api/code/download">⤓ Kód (ZIP)</a></div></div>
+            <a class="btn" href="/api/code/download">⤓ Kód (ZIP)</a></div>
+          <h3>Formázott HTML riportok</h3>
+          <div class="row">${exportHtmlBtn("all", "⤓ Teljes riport")}
+            ${[["arena", "Aréna"], ["debate", "Vita"], ["design", "Tervezés"], ["testing", "Tesztelés"], ["consensus", "Közös döntés"], ["code", "Kód"], ["pipeline", "Teljes folyamat"]]
+              .map(([s, l]) => exportHtmlBtn(s, "⤓ " + l)).join("")}</div></div>
         <div class="card"><h2>Importálás</h2>
           <p class="hint">Korábban exportált <span class="mono">.arena.json</span> fájl visszatöltése (az aktuális projekt előtte automatikusan mentődik).</p>
           <input type="file" id="proj-file" accept=".json,application/json"></div>

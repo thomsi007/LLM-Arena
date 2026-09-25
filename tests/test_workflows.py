@@ -137,6 +137,34 @@ class WorkflowTest(unittest.TestCase):
         finally:
             self.a.token_delay = 0
 
+    def test_html_reports_all_sections(self):
+        from llm_arena import report
+        job = wait(self.app.start_pipeline("Számológép <script>alert(1)</script>"), timeout=120)
+        self.assertEqual(job.status, "done", job.error)
+        p = self.app.store.snapshot()
+        p["messages"][0]["content"] = "<img src=x onerror=alert(1)> **bold**\n```python\nx = 1\n```"
+        for section in report.SECTIONS:
+            doc = report.render(p, section)
+            self.assertTrue(doc.startswith("<!doctype html>"), section)
+            self.assertNotIn("<script", doc.lower(), section)
+            self.assertNotIn("<img", doc, section)
+        full = report.render(p, "all")
+        for sid in ("s-arena", "s-debate", "s-design", "s-testing", "s-consensus", "s-code", "s-pipeline"):
+            self.assertIn(sid, full)
+        self.assertIn("Közös ténylista", full)
+        self.assertIn("calc.py", full)
+        with self.assertRaises(ValueError):
+            report.render(p, "nope")
+
+    def test_markdown_renderer(self):
+        from llm_arena.report import markdown
+        out = markdown("# Cím\n- a\n- **b**\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\n```py\n<tag>\n```")
+        self.assertIn("<h3>Cím</h3>", out)
+        self.assertIn("<li><strong>b</strong></li>", out)
+        self.assertIn("<td>1</td>", out)
+        self.assertIn("&lt;tag&gt;", out)
+        self.assertNotIn("javascript:", markdown("[x](javascript:alert(1))").replace("[x](javascript:alert(1))", ""))
+
     def test_save_export_import_roundtrip(self):
         self.app.update_config({"llms": {"A": {"api_key": "secret"}}})
         wait(self.app.start_arena("Kérdés?"))
@@ -208,6 +236,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/api/nope")[0], 404)
         self.assertEqual(self.req("GET", "/../../etc/passwd")[0], 404)
         self.assertEqual(self.req("GET", "/api/code/download")[0], 400)
+        st, body = self.req("GET", "/api/export/html?section=arena")
+        self.assertEqual(st, 200)
+        self.assertIn(b"<!doctype html>", body)
+        self.assertEqual(self.req("GET", "/api/export/html?section=bogus")[0], 400)
         st, body = self.req("GET", "/")
         self.assertEqual(st, 200)
         self.assertIn(b"LLM Ar", body)

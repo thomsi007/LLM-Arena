@@ -1,7 +1,7 @@
 // Code view: files, versions, diffs, manual edit, download.
 import { api } from "../api.js";
 import { state, refresh } from "../state.js";
-import { esc, toast, copyText, download, fmtDate } from "../ui.js";
+import { esc, toast, copyText, download, fmtDate, exportHtmlBtn } from "../ui.js";
 
 let root;
 let selected = null;
@@ -52,6 +52,7 @@ function render() {
       <button class="btn" id="code-copy" ${selected ? "" : "disabled"}>Másolás</button>
       <button class="btn" id="code-dl-file" ${selected ? "" : "disabled"}>⤓ Fájl</button>
       <a class="btn" href="/api/code/download${version ? "?version=" + version : ""}" ${names.length ? "" : 'style="pointer-events:none;opacity:.45"'}>⤓ ZIP</a>
+      ${names.length ? exportHtmlBtn("code", "⤓ HTML") : ""}
       <button class="btn" id="code-new" ${version ? "disabled" : ""}>+ Új fájl</button>
       <button class="btn" id="code-edit-btn" ${selected && !version ? "" : "disabled"}>✎ Szerkesztés</button>
       <button class="btn danger" id="code-del" ${selected && !version ? "" : "disabled"}>Törlés</button>

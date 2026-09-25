@@ -335,6 +335,14 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._download(self.app.conversation_markdown().encode("utf-8"), name + ".md", "text/markdown; charset=utf-8")
 
+    @route("GET", "/api/export/html")
+    def api_export_html(self):
+        from . import report
+        section = self.query.get("section", "all")
+        body = report.render(self.app.store.snapshot(), section).encode("utf-8")
+        name = f"{_fname(self.app.store.project['name'])}_{section}.html"
+        self._download(body, name, "text/html; charset=utf-8")
+
     @route("GET", "/api/code/download")
     def api_code_download(self):
         v = self.query.get("version")

@@ -1,7 +1,7 @@
 // Arena: same prompt to both models, side by side, multi-round.
 import { api } from "../api.js";
 import { state, trackJob, messageById, runningJobs } from "../state.js";
-import { esc, toast, messageCard, runningBanner, fmtTime, fmtSec } from "../ui.js";
+import { esc, toast, messageCard, runningBanner, fmtTime, fmtSec, exportHtmlBtn } from "../ui.js";
 
 let root;
 
@@ -51,6 +51,7 @@ export default {
           <label class="check"><input type="checkbox" id="arena-multi" checked> Több körös (előzmények megtartása)</label>
           <span class="spacer"></span>
           <button class="btn ghost" id="arena-clear">Körök törlése</button>
+          ${exportHtmlBtn("arena")}
           <a class="btn ghost" href="/api/export/conversation?format=md">⤓ Beszélgetés (MD)</a>
           <a class="btn ghost" href="/api/export/conversation?format=json">⤓ JSON</a>
           <button class="btn primary" id="arena-send">▶ Küldés mindkét modellnek</button>
