@@ -138,11 +138,14 @@ PDF-ből is kinyeri a szöveget (pypdf-fel), és a modell `focus` kérdése szer
 
 **Helyi SearXNG egy kattintással (ingyenes, nyílt forráskódú metakereső):**
 Beállítások → Webes eszközök → „▶ SearXNG indítása”. Az LLM Aréna:
-1. ellenőrzi a Dockert (Windows/macOS: az ingyenes [Docker Desktop](https://www.docker.com/products/docker-desktop/) kell, fusson),
+1. ellenőrzi a Dockert (Windows/macOS: az ingyenes [Docker Desktop](https://www.docker.com/products/docker-desktop/) kell);
+   ha telepítve van, de a motor nem fut, **magától elindítja a Docker Desktopot** és megvárja,
 2. létrehozza a `data/searxng/settings.yml`-t (JSON-kimenet bekapcsolva, limiter kikapcsolva, véletlen titkos kulcs),
 3. letölti és elindítja a hivatalos `searxng/searxng` konténert (`llm-arena-searxng`, csak `127.0.0.1:<port>`-on
    érhető el, újraindul a géppel együtt),
-4. megvárja, amíg válaszol, majd **automatikusan beírja a címét a SearXNG URL mezőbe, és keresőmotornak választja**.
+4. ha a port foglalt, **automatikusan a következő szabad porton indul** (egy ott már futó, használható SearXNG-t átvesz;
+   ha a meglévő konténer régi portját más program foglalta el, új porttal hozza létre újra),
+5. megvárja, amíg válaszol, majd **automatikusan beírja a címét (és a portot) a beállításokba, és keresőmotornak választja**.
 
 Ha már fut egy SearXNG (akár saját telepítés), a „🔍 Keresés helyi SearXNG után” gomb megtalálja a szokásos portokon
 (8888, 8080, 8081 …), ellenőrzi a JSON-kimenetet, és szintén automatikusan átveszi. Opcionálisan az LLM Arénával

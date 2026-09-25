@@ -114,6 +114,59 @@ class DockerFlowTest(unittest.TestCase):
         self.assertIn("RuntimeError", cm.exception.error["detail"])
 
 
+class AutoPortAndDockerDesktopTest(unittest.TestCase):
+    def test_busy_port_moves_to_next_free(self):
+        srv, url = serve(OtherApp)
+        busy = srv.server_address[1]
+        try:
+            created = {}
+
+            def fake_create(cfg, port, image):
+                created["port"] = port
+                return subprocess.CompletedProcess([], 0, "id", "")
+
+            with mock.patch.object(sx, "ensure_docker_running", return_value={"ok": True}), \
+                    mock.patch.object(sx, "container_state", return_value=None), \
+                    mock.patch.object(sx, "_image_present", return_value=True), \
+                    mock.patch.object(sx, "_create_container", side_effect=fake_create), \
+                    mock.patch.object(sx, "wait_ready", side_effect=lambda u, *a, **k: {"url": u}):
+                url = sx.start_docker(tempfile.mkdtemp(), busy, lambda m: None)
+            self.assertNotEqual(created["port"], busy)
+            self.assertEqual(url, f"http://127.0.0.1:{created['port']}")
+        finally:
+            srv.shutdown()
+
+    def test_busy_port_with_working_searxng_is_taken_over(self):
+        srv, url = serve(FakeSearx)
+        try:
+            with mock.patch.object(sx, "ensure_docker_running", return_value={"ok": True}), \
+                    mock.patch.object(sx, "container_state", return_value=None):
+                self.assertEqual(sx.start_docker(tempfile.mkdtemp(), srv.server_address[1], lambda m: None), url)
+        finally:
+            srv.shutdown()
+
+    def test_docker_desktop_is_started_when_engine_down(self):
+        states = [{"ok": False, "installed": True, "message": "nem fut"}] * 2 + [{"ok": True, "version": "29"}]
+        msgs = []
+        with mock.patch.object(sx, "docker_status", side_effect=states), \
+                mock.patch.object(sx, "_docker_desktop_launchers", return_value=[["docker-desktop"]]), \
+                mock.patch.object(sx.subprocess, "Popen") as popen, mock.patch.object(sx.time, "sleep"):
+            st = sx.ensure_docker_running(msgs.append)
+        self.assertTrue(st["ok"])
+        popen.assert_called_once()
+        self.assertTrue(any("Docker Desktop" in m for m in msgs))
+
+
+class OtherApp(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):  # noqa: N802
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"another program")
+
+
 class AppIntegrationTest(unittest.TestCase):
     def test_detect_takes_over_settings_and_search_works(self):
         srv, url = serve(FakeSearx)
@@ -172,6 +225,16 @@ class RealDockerTest(unittest.TestCase):
             self.assertTrue(p["searxng"] and p["json"])
             self.assertEqual(sx.start_docker(tempfile.mkdtemp(), port, lambda m: None), url)  # idempotent
             self.assertTrue(sx.stop_docker())
+            self.assertEqual(sx.container_port(), port)  # known even while stopped
+            # the old port gets taken by another program -> recreated on a free port
+            other = ThreadingHTTPServer(("127.0.0.1", port), OtherApp)
+            threading.Thread(target=other.serve_forever, daemon=True).start()
+            try:
+                url2 = sx.start_docker(tempfile.mkdtemp(), port, lambda m: None)
+                self.assertNotEqual(url2, url)
+                self.assertTrue(sx.probe(url2)["json"])
+            finally:
+                other.shutdown()
         finally:
             subprocess.run(["docker", "rm", "-f", sx.CONTAINER], capture_output=True)
 

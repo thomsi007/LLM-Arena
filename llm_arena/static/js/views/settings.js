@@ -175,6 +175,9 @@ function renderSteps(slot, res) {
 }
 
 function applySearxFields(url) {
+  const port = (url.match(/:(\d+)\/?$/) || [])[1];
+  const pf = root.querySelector('[data-setting="web_searxng_port"]');
+  if (pf && port) { pf.value = port; state.project.settings.web_searxng_port = +port; }
   const u = root.querySelector('[data-setting="web_searxng_url"]');
   const b = root.querySelector('[data-setting="web_backend"]');
   if (u) u.value = url;
@@ -304,6 +307,12 @@ export default {
     });
   },
   update(reason) {
+    const sxBtn = root.querySelector("#sx-start");
+    if (sxBtn) {
+      const running = [...state.jobs.values()].some((j) => j.kind === "searxng" && j.status === "running");
+      sxBtn.disabled = running;
+      sxBtn.textContent = running ? "⏳ SearXNG indul…" : "▶ SearXNG indítása";
+    }
     // After the SearXNG job: take over the new URL / backend into the (persistent) form.
     if (typeof reason === "string" && reason.startsWith("job_end:")) {
       const job = state.jobs.get(reason.slice(8));

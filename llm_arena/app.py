@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import json
 import threading
+import urllib.parse
 import time
 import zipfile
 from typing import Any, Callable
@@ -179,6 +180,9 @@ class ArenaApp:
             s = p["settings"]
             s["web_searxng_url"] = url
             s["web_backend"] = "searxng"
+            port = urllib.parse.urlsplit(url).port
+            if port:
+                s["web_searxng_port"] = port
             s["web_enabled"] = True
         self.store.save_defaults()
         web.cache_clear()

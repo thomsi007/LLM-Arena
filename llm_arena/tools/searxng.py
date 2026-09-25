@@ -188,15 +188,15 @@ def container_state(name: str = CONTAINER) -> str | None:
 
 
 def container_port(name: str = CONTAINER) -> int | None:
+    """Host port of the container – also for a stopped container (from its configuration)."""
     try:
-        r = _run(["docker", "port", name, "8080/tcp"], timeout=15)
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-    for line in r.stdout.splitlines():
-        try:
-            return int(line.rsplit(":", 1)[-1])
-        except ValueError:
-            continue
+        r = _run(["docker", "inspect", "-f", "{{json .HostConfig.PortBindings}}", name], timeout=15)
+        data = json.loads(r.stdout or "null") if r.returncode == 0 else None
+        for binding in (data or {}).get("8080/tcp") or []:
+            if binding.get("HostPort"):
+                return int(binding["HostPort"])
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        pass
     return None
 
 
@@ -280,9 +280,82 @@ def wait_ready(url: str, timeout: float, progress: Progress, cancelled: Callable
                      "Nézd meg a konténer naplóját: docker logs llm-arena-searxng")
 
 
+PORT_CONFLICT = re.compile(r"(port is already allocated|address already in use|bind: .*(in use|only one usage)|"
+                           r"Ports are not available|forbidden by its access permissions)", re.I)
+
+
+def find_free_port(start: int, tries: int = 40) -> int:
+    for p in range(start, min(start + tries, 65535)):
+        if port_free(p):
+            return p
+    raise SearxError(f"Nem találtam szabad portot {start} és {start + tries} között.",
+                     "Adj meg más kiinduló portot a SearXNG port mezőben.")
+
+
+def _docker_desktop_launchers() -> list[list[str]]:
+    if os.name == "nt":
+        roots = [os.environ.get(k, "") for k in ("ProgramFiles", "ProgramW6432", "LOCALAPPDATA")]
+        exes = [os.path.join(r, "Docker", "Docker", "Docker Desktop.exe") for r in roots if r]
+        exes.append(os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Docker", "Docker", "Docker Desktop.exe"))
+        return [[e] for e in exes if os.path.isfile(e)]
+    if sys.platform == "darwin":
+        return [["open", "-a", "Docker"]]
+    return [["systemctl", "--user", "start", "docker-desktop"]]
+
+
+def ensure_docker_running(progress: Progress, cancelled: Callable[[], bool] = lambda: False,
+                          timeout: float = 180) -> dict:
+    """Return docker status; if Docker is installed but its engine is stopped, start Docker Desktop and wait."""
+    st = docker_status()
+    if st["ok"] or not st.get("installed"):
+        return st
+    launchers = _docker_desktop_launchers()
+    started = False
+    for cmd in launchers:
+        try:
+            kw = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+            if os.name == "nt":
+                kw["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            subprocess.Popen(cmd, **kw)
+            started = True
+            progress("A Docker motor nem futott – a Docker Desktop indítása… (akár 1–2 perc)")
+            break
+        except OSError:
+            continue
+    if not started:
+        return st
+    deadline = time.monotonic() + timeout
+    n = 0
+    while time.monotonic() < deadline:
+        if cancelled():
+            raise SearxError("Megszakítva.")
+        time.sleep(3)
+        st = docker_status()
+        if st["ok"]:
+            progress(f"A Docker motor elindult (v{st.get('version')}).")
+            return st
+        n += 1
+        if n % 5 == 0:
+            progress(f"Várakozás a Docker motorra… ({int(time.monotonic() - deadline + timeout)} s)")
+    st["message"] = f"A Docker Desktop elindult, de a motor {int(timeout)} s alatt sem állt fel."
+    st["hint"] = "Nézd meg a Docker Desktop ablakát (licenc elfogadása, WSL frissítés kérése?), majd próbáld újra."
+    return st
+
+
+def _create_container(cfg: Path, port: int, image: str) -> subprocess.CompletedProcess:
+    return _run(["docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped",
+                 "-p", f"127.0.0.1:{port}:8080",
+                 "-v", f"{cfg}:/etc/searxng",
+                 "-e", f"SEARXNG_BASE_URL=http://127.0.0.1:{port}/",
+                 # IPv4 bind: the image defaults to "::", which fails on hosts without IPv6.
+                 "-e", "GRANIAN_HOST=0.0.0.0",
+                 image], timeout=120)
+
+
 def start_docker(data_dir: str | os.PathLike, port: int, progress: Progress,
                  cancelled: Callable[[], bool] = lambda: False, image: str = IMAGE) -> str:
-    st = docker_status()
+    st = ensure_docker_running(progress, cancelled)
     if not st["ok"]:
         raise SearxError(st["message"], st.get("hint", ""))
     cfg = ensure_config(data_dir)
@@ -291,38 +364,47 @@ def start_docker(data_dir: str | os.PathLike, port: int, progress: Progress,
         p = container_port() or port
         url = f"http://127.0.0.1:{p}"
         progress(f"A SearXNG konténer már fut ({url}).")
-        return wait_ready(url, 60, progress, cancelled)["url"]
+        return wait_ready(url, 60, progress, cancelled, CONTAINER)["url"]
     if state:  # exists but stopped
-        cport = container_port()
+        cport = container_port() or port
         progress("A meglévő SearXNG konténer indítása…")
         r = _run(["docker", "start", CONTAINER], timeout=60)
-        if r.returncode != 0:
-            raise SearxError(f"A konténer nem indult: {r.stderr.strip()[-400:]}",
+        if r.returncode == 0:
+            return wait_ready(f"http://127.0.0.1:{container_port() or cport}", 90, progress, cancelled,
+                              CONTAINER)["url"]
+        if not PORT_CONFLICT.search(r.stderr + r.stdout) and port_free(cport):
+            raise SearxError(f"A konténer nem indult: {(r.stderr or r.stdout).strip()[-400:]}",
                              "Próbáld: docker rm -f llm-arena-searxng, majd indítsd újra innen.")
-        url = f"http://127.0.0.1:{container_port() or cport or port}"
-        return wait_ready(url, 90, progress, cancelled, CONTAINER)["url"]
+        # Its old port is taken by another program now: recreate the container on a free port.
+        progress(f"A konténer régi portját ({cport}) más program foglalja – újralétrehozás szabad porton…")
+        remove_docker()
     if not port_free(port):
         p = probe(f"http://127.0.0.1:{port}", 2.0)
-        if p["searxng"]:
-            raise SearxError(f"A {port}-es porton már fut egy SearXNG – használd a „Keresés helyi SearXNG után” gombot.")
-        raise SearxError(f"A {port}-es port foglalt.", "Adj meg másik portot (pl. 8889) a SearXNG port mezőben.")
+        if p["searxng"] and p["json"]:
+            progress(f"A {port}-es porton már fut egy használható SearXNG – azt veszem át.")
+            return p["url"]
+        new_port = find_free_port(port + 1)
+        progress(f"A {port}-es port foglalt – a SearXNG a {new_port}-es porton indul.")
+        port = new_port
     if not _image_present(image):
         _pull(image, progress, cancelled)
-    progress("SearXNG konténer létrehozása…")
-    args = ["docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped",
-            "-p", f"127.0.0.1:{port}:8080",
-            "-v", f"{cfg}:/etc/searxng",
-            "-e", f"SEARXNG_BASE_URL=http://127.0.0.1:{port}/",
-            # IPv4 bind: the image defaults to "::", which fails on hosts without IPv6.
-            "-e", "GRANIAN_HOST=0.0.0.0",
-            image]
-    r = _run(args, timeout=120)
-    if r.returncode != 0:
-        raise SearxError(f"A konténer létrehozása nem sikerült: {(r.stderr or r.stdout).strip()[-500:]}",
+    progress(f"SearXNG konténer létrehozása (port: {port})…")
+    for _ in range(3):
+        r = _create_container(cfg, port, image)
+        if r.returncode == 0:
+            break
+        out = (r.stderr or r.stdout).strip()
+        _run(["docker", "rm", "-f", CONTAINER], timeout=60)  # docker leaves a "Created" container behind
+        if PORT_CONFLICT.search(out):  # raced with another program / reserved port range on Windows
+            port = find_free_port(port + 1)
+            progress(f"A port mégsem volt használható – új próbálkozás a {port}-es porton…")
+            continue
+        raise SearxError(f"A konténer létrehozása nem sikerült: {out[-500:]}",
                          "Windowson engedélyezd a Docker Desktopban a mappamegosztást (Settings → Resources → "
                          "File sharing) az LLM Aréna adatmappájára.")
-    url = f"http://127.0.0.1:{port}"
-    return wait_ready(url, 120, progress, cancelled, CONTAINER)["url"]
+    else:
+        raise SearxError("Nem sikerült szabad portot találni a SearXNG-nek.", "Adj meg más portot a SearXNG port mezőben.")
+    return wait_ready(f"http://127.0.0.1:{port}", 120, progress, cancelled, CONTAINER)["url"]
 
 
 def stop_docker() -> bool:
@@ -362,7 +444,9 @@ def start_native(data_dir: str | os.PathLike, port: int, progress: Progress,
     if _native and _native.poll() is None:
         return wait_ready(f"http://127.0.0.1:{port}", 60, progress, cancelled)["url"]
     if not port_free(port):
-        raise SearxError(f"A {port}-es port foglalt.", "Adj meg másik portot.")
+        new_port = find_free_port(port + 1)
+        progress(f"A {port}-es port foglalt – a SearXNG a {new_port}-es porton indul.")
+        port = new_port
     cfg = ensure_config(data_dir) / "settings.yml"
     env = dict(os.environ, SEARXNG_SETTINGS_PATH=str(cfg), SEARXNG_PORT=str(port), SEARXNG_BIND_ADDRESS="127.0.0.1")
     progress("SearXNG indítása (python -m searx.webapp)…")
