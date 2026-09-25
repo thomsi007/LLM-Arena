@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import socket
 import time
@@ -149,7 +150,20 @@ class Handler(BaseHTTPRequestHandler):
         disp = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
         self._send(200, body, ctype, {"Content-Disposition": disp})
 
+    SW_PATHS = ("/sw.js", "/service-worker.js", "/serviceworker.js", "/service_worker.js", "/worker.js",
+                "/ngsw-worker.js", "/firebase-messaging-sw.js", "/pwabuilder-sw.js")
+    SW_KILL = (b"self.addEventListener('install', () => self.skipWaiting());\n"
+               b"self.addEventListener('activate', (e) => e.waitUntil((async () => {\n"
+               b"  await self.registration.unregister();\n"
+               b"  for (const k of await caches.keys()) await caches.delete(k);\n"
+               b"  for (const c of await self.clients.matchAll({ type: 'window' })) c.navigate(c.url);\n"
+               b"})()));\n")
+
     def _static(self, path: str) -> None:
+        if path in self.SW_PATHS:
+            # A service worker left on this origin by another app would keep serving that app's UI.
+            # Browsers re-fetch the worker script from the network: answer with a self-destroying one.
+            return self._send(200, self.SW_KILL, "text/javascript; charset=utf-8", {"Service-Worker-Allowed": "/"})
         rel = "index.html" if path in ("", "/") else path.lstrip("/")
         target = (STATIC_DIR / rel).resolve()
         if STATIC_DIR.resolve() not in target.parents and target != STATIC_DIR.resolve() or not target.is_file():
@@ -483,7 +497,14 @@ def _fname(name: str) -> str:
 
 class ArenaHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # On Windows SO_REUSEADDR lets a second program bind a port that is already in use, so the
+    # browser may end up talking to the *other* program. Use exclusive binding there instead.
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def make_server(app: ArenaApp, host: str = "127.0.0.1", port: int = 8765) -> ArenaHTTPServer:

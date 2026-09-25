@@ -64,6 +64,13 @@
       }, 4000);
     })();
   </script>
+  <script>
+    // Remove service workers / caches another app may have left on this address.
+    if ("serviceWorker" in navigator) navigator.serviceWorker.getRegistrations().then(function (rs) {
+      rs.forEach(function (r) { r.unregister(); });
+    }).catch(function () {});
+    if (window.caches) caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); }).catch(function () {});
+  </script>
   <script type="module" src="/js/app.js"></script>
 </body>
 </html>

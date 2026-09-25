@@ -18,7 +18,7 @@ llama-server -m modell-a.gguf --port 8080
 llama-server -m modell-b.gguf --port 8081
 
 # 2) az aréna
-python3 -m llm_arena            # → http://127.0.0.1:8765
+python3 -m llm_arena            # → http://127.0.0.1:8765 (ha foglalt: a következő szabad port)
 # vagy: ./run.sh  /  run.bat    (böngészőt is nyit)
 ```
 
