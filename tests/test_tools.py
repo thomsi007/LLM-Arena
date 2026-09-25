@@ -151,6 +151,7 @@ class ToolLoopTest(unittest.TestCase):
     def test_native_tool_calls_stream_and_plain(self):
         job = wait(self.app.start_arena("LIVE_INFO: mi a legújabb llama.cpp verzió?"))
         self.assertEqual(job.status, "done", job.error)
+        self.assertEqual(job.result["failed"], [])
         for m in self.arena_msgs():  # A streams, B does not
             self.assertEqual(m["status"], "done")
             self.assertIn("b9999", m["content"])
@@ -161,6 +162,16 @@ class ToolLoopTest(unittest.TestCase):
         self.assertTrue(any(r.get("tools") for r in self.a.requests))
         self.assertTrue(any(m.get("role") == "tool" for m in self.a.requests[-1]["messages"]))
         self.assertIn("tool", [e["type"] for e in job.events])
+
+    def test_debate_turn_with_tool_call(self):
+        # Regression: `round` parameter shadowed builtins.round -> "'int' object is not callable".
+        job = wait(self.app.start_debate("LIVE_INFO: mi a helyzet?", rounds=1))
+        self.assertEqual(job.status, "done", job.error)
+        turns = self.app.store.snapshot()["debate"]["turns"]
+        self.assertTrue(all(t["status"] == "done" for t in turns))
+        msg = self.app.store.find_message(turns[0]["msg_id"])
+        self.assertEqual(len(msg["tool_calls"]), 1)
+        self.assertIsInstance(msg["latency"], float)
 
     def test_fallback_to_text_protocol(self):
         self.a.mode = "no_native_tools"

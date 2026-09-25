@@ -100,6 +100,8 @@ class ErrorDescriptionTest(unittest.TestCase):
 
     def test_generic_exceptions(self):
         self.assertEqual(describe_exception(ValueError("rossz"))["label"], "Hibás bemenet")
+        bug = describe_exception(TypeError("'int' object is not callable"))
+        self.assertEqual(bug["kind"], "internal")  # a program bug is never reported as bad input
         self.assertEqual(describe_exception(PermissionError("x"))["kind"], "permission")
         internal = describe_exception(RuntimeError("boom"))
         self.assertEqual(internal["kind"], "internal")

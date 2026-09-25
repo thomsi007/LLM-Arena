@@ -202,6 +202,8 @@ class Handler(BaseHTTPRequestHandler):
     @route("POST", "/api/arena/retry")
     def api_arena_retry(self):
         b = self._body()
+        if b.get("round") in (None, "") or not b.get("slot"):
+            raise ApiError(400, "Hiányzik a kör száma vagy a modell (round, slot).")
         self._job(self.app.retry_arena(int(b["round"]), str(b["slot"])))
 
     @route("POST", "/api/arena/clear")

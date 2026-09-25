@@ -3,6 +3,7 @@ recording structured messages, JSON answers with repair, parallel calls."""
 
 from __future__ import annotations
 
+import builtins
 import re
 import string
 import threading
@@ -19,6 +20,9 @@ from .. import attachments as att_mod
 from .. import tools as tool_mod
 from ..providers import EmptyResponse, ToolsUnsupported
 from ..textutil import clip, extract_json
+
+# `WorkflowContext.call` has a `round` parameter (debate/arena round) that shadows the builtin.
+_round = builtins.round
 
 # Endpoints that rejected the native `tools` parameter (switch to the text protocol).
 _NATIVE_TOOLS_UNSUPPORTED: dict[str, bool] = {}
@@ -289,7 +293,7 @@ class WorkflowContext:
         with self.store.mutate():
             fill_message(msg, result)
             if msg["tool_calls"]:
-                msg["latency"] = round(totals["latency"], 3)
+                msg["latency"] = _round(totals["latency"], 3)
                 msg["tokens"] = totals["tokens"] or msg["tokens"]
                 msg["prompt_tokens"] = totals["prompt"] or msg["prompt_tokens"]
         self.job.emit("msg_end", message=dict(msg))

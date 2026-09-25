@@ -64,10 +64,13 @@ def run_arena(ctx: WorkflowContext, prompt: str, *, multi_turn: bool = True,
     results = ctx.parallel({s: (lambda s=s: _ask(ctx, round_no, s, prompt, multi_turn, attachments))
                             for s in slots})
     errors = {s: e for s, (_, e) in results.items() if e is not None}
+    unexpected = [e for e in errors.values() if not isinstance(e, (StepFailed, Cancelled))]
     for s, e in errors.items():
         if not isinstance(e, (StepFailed, Cancelled)):
-            ctx.log("error", f"LLM {s}: váratlan hiba: {e}")
+            ctx.log("error", f"LLM {s}: váratlan hiba: {type(e).__name__}: {e}")
     ctx.state_changed("arena")
+    if unexpected:  # program bug: surface it instead of silently reporting success
+        raise unexpected[0]
     ok = [s for s in slots if s not in errors]
     ctx.progress(1.0, f"Kész – sikeres: {', '.join(ok) or 'egyik sem'}")
     return {"round": round_no, "ok": ok, "failed": list(errors)}

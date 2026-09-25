@@ -108,10 +108,8 @@ def describe_exception(e: BaseException, *, stage: str | None = None) -> dict:
         return make("disk", "Fájl- vagy hálózati hiba", f"{e}", stage=stage)
     if isinstance(e, json.JSONDecodeError):
         return make("invalid_input", "Hibás JSON", f"A megadott adat nem érvényes JSON: {e}", stage=stage)
-    if isinstance(e, (ValueError, TypeError, KeyError)):
-        msg = str(e).strip("'\"") or name
-        if isinstance(e, KeyError):
-            msg = f"Hiányzó mező: {msg}"
-        return make("invalid_input", "Hibás bemenet", msg, stage=stage)
+    if type(e) is ValueError or isinstance(e, UnicodeError):
+        # Only explicit validation errors are "bad input"; TypeError/KeyError/... are program bugs.
+        return make("invalid_input", "Hibás bemenet", str(e) or name, stage=stage)
     return make("internal", "Váratlan programhiba", f"{name}: {e}",
                 detail="".join(traceback.format_exception(type(e), e, e.__traceback__)), stage=stage)
