@@ -123,7 +123,8 @@ def run_debate(ctx: WorkflowContext, *, topic: str | None = None, rounds: int | 
 
             try:
                 msg = ctx.call(slot, user, role=role, stage=f"debate_{phase}", round=rnd,
-                               title=f"Vita {rnd}. kör – {PHASE_HU[phase]}", system=system, on_created=attach)
+                               title=f"Vita {rnd}. kör – {PHASE_HU[phase]}", system=system, on_created=attach,
+                               tools=True)
             except StepFailed as e:
                 with ctx.store.mutate():
                     turn.update(status="error", error=e.error)

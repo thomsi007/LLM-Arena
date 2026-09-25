@@ -15,7 +15,7 @@ from typing import Any, Optional
 from .base import (
     Cancelled, CancelToken, ChatResult, ConnectionInterrupted, EmptyResponse,
     EndpointUnreachable, HTTPStatusError, InvalidResponse, LLMConfig, LLMError,
-    LLMProvider, LLMTimeout, ModelError, TokenCallback,
+    LLMProvider, LLMTimeout, ModelError, TokenCallback, ToolsUnsupported,
 )
 
 _THINK_RE = re.compile(r"<think>(.*?)</think>", re.S | re.I)
@@ -210,6 +210,9 @@ class OpenAICompatProvider(LLMProvider):
             payload["chat_template_kwargs"] = {"enable_thinking": False}
         if stream and overrides.get("_stream_options", True):
             payload["stream_options"] = {"include_usage": True}
+        if overrides.get("tools"):
+            payload["tools"] = overrides["tools"]
+            payload["tool_choice"] = "auto"
         if overrides.get("response_format"):
             payload["response_format"] = overrides["response_format"]
         return payload
@@ -227,6 +230,9 @@ class OpenAICompatProvider(LLMProvider):
                     "chat_template_kwargs" in (e.message or "") + (e.detail or ""):
                 overrides = dict(overrides, _template_kwargs=False)
                 return self._chat_once(messages, on_token=on_token, cancel=cancel, **overrides)
+            if "tools" in payload and e.status in (400, 422, 500, 501) and re.search(
+                    r"tool|jinja|function", (e.message or "") + (e.detail or ""), re.I):
+                raise ToolsUnsupported(f"A szerver elutasította a tools paramétert: {e.message}", status=e.status)
             if stream and e.status == 400 and "stream_options" in (e.message or ""):
                 overrides = dict(overrides, _stream_options=False)
                 return self._chat_once(messages, on_token=on_token, cancel=cancel, **overrides)
@@ -277,7 +283,8 @@ class OpenAICompatProvider(LLMProvider):
             content = ch.get("text", "")
         reasoning = (msg.get("reasoning_content") or msg.get("reasoning") or "") if isinstance(msg, dict) else ""
         res = ChatResult(content=content or "", reasoning=reasoning, model=str(data.get("model") or ""),
-                         finish_reason=ch.get("finish_reason"), latency=latency, streamed=False)
+                         finish_reason=ch.get("finish_reason"), latency=latency, streamed=False,
+                         tool_calls=list(msg.get("tool_calls") or []) if isinstance(msg, dict) else [])
         _apply_usage(res, data.get("usage"), data.get("timings"))
         return res
 
@@ -291,6 +298,7 @@ class OpenAICompatProvider(LLMProvider):
         done = False
         bad = 0
         ttft = None
+        tools: dict[int, dict] = {}
         try:
             for raw in resp:
                 if cancel and cancel.is_set():
@@ -340,6 +348,19 @@ class OpenAICompatProvider(LLMProvider):
                         parts.append(piece)
                         if on_token:
                             on_token(piece, "content")
+                    for tc in (delta.get("tool_calls") or []) if isinstance(delta, dict) else []:
+                        slot = tools.setdefault(int(tc.get("index", len(tools))),
+                                                {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                        if tc.get("id"):
+                            slot["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            slot["function"]["name"] += fn["name"]
+                        if fn.get("arguments"):
+                            args = fn["arguments"]
+                            slot["function"]["arguments"] += args if isinstance(args, str) else json.dumps(args)
+                        if ttft is None:
+                            ttft = time.monotonic() - start
                     if ch.get("finish_reason"):
                         finish = ch["finish_reason"]
         except LLMError:
@@ -356,7 +377,8 @@ class OpenAICompatProvider(LLMProvider):
             raise ConnectionInterrupted("A stream lezárás ([DONE] / finish_reason) nélkül ért véget.",
                                         partial="".join(parts))
         res = ChatResult(content="".join(parts), reasoning="".join(reasoning), model=model,
-                         finish_reason=finish, latency=time.monotonic() - start, ttft=ttft, streamed=True)
+                         finish_reason=finish, latency=time.monotonic() - start, ttft=ttft, streamed=True,
+                         tool_calls=[tools[k] for k in sorted(tools)])
         _apply_usage(res, usage, timings)
         return res
 
@@ -367,7 +389,7 @@ class OpenAICompatProvider(LLMProvider):
         res.content = content
         if not res.model:
             res.model = payload.get("model", "") or "ismeretlen"
-        if not res.content.strip():
+        if not res.content.strip() and not res.tool_calls:
             hint = " (a modell csak gondolkodott – növeld a max token értéket)" if res.reasoning else ""
             raise EmptyResponse(f"A modell üres választ adott{hint}.",
                                 detail="reasoning_only" if res.reasoning else None)

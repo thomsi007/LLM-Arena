@@ -36,6 +36,15 @@ def default_settings() -> dict:
         "moderator": "A",
         "dual_architecture": True,
         "target_language": "Python",
+        # Live web access for the models (tools: web_search, fetch_url)
+        "web_enabled": True,
+        "web_backend": "duckduckgo",      # duckduckgo | searxng | brave
+        "web_searxng_url": "",
+        "web_brave_api_key": "",
+        "web_max_results": 5,
+        "web_max_calls": 4,               # tool calls per answer
+        "web_tool_mode": "auto",          # auto | native | text
+        "web_allow_private": False,       # allow fetch_url to reach LAN / localhost
     }
 
 
@@ -265,6 +274,7 @@ class ProjectStore:
         if not include_keys:
             for cfg in data["llms"].values():
                 cfg["api_key"] = ""
+            data["settings"]["web_brave_api_key"] = ""
         data["exported"] = time.time()
         return data
 
@@ -276,6 +286,8 @@ class ProjectStore:
             for slot, cfg in data["llms"].items():
                 if not cfg.get("api_key"):
                     cfg["api_key"] = self.project["llms"].get(slot, {}).get("api_key", "")
+            if not data["settings"].get("web_brave_api_key"):
+                data["settings"]["web_brave_api_key"] = self.project["settings"].get("web_brave_api_key", "")
             self.project = data
             self.touch()
         return data

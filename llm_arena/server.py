@@ -166,6 +166,15 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": True, "result": self.app.test_connection(slot, body.get("config"),
                                                                    probe=body.get("probe", True))})
 
+    @route("POST", "/api/web/test")
+    def api_web_test(self):
+        from . import tools
+        b = self._body()
+        cfg = tools.web_config(self.app.store.settings())
+        r = tools.execute("web_search", {"query": b.get("query") or "llama.cpp latest release"}, cfg)
+        self.app.store.log("info" if r["ok"] else "error", f"Webes keresés teszt: {r['summary']}", source="web")
+        self._json({"ok": True, "result": r})
+
     @route("POST", "/api/llm/(?P<slot>[AB])/models")
     def api_llm_models(self, slot):
         self._json({"ok": True, **self.app.detect_models(slot, self._body().get("config"))})
@@ -271,6 +280,8 @@ class Handler(BaseHTTPRequestHandler):
         data = self.app.store.snapshot()
         for cfg in data["llms"].values():
             cfg["api_key"] = "***" if cfg.get("api_key") else ""
+        if data["settings"].get("web_brave_api_key"):
+            data["settings"]["web_brave_api_key"] = "***"
         self._json({"ok": True, "project": data, "jobs": self.app.jobs.list()})
 
     @route("POST", "/api/project/new")

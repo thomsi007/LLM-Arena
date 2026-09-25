@@ -39,7 +39,7 @@ def _ask(ctx: WorkflowContext, round_no: int, slot: str, prompt: str, multi_turn
 
     return ctx.call(slot, history + [{"role": "user", "content": prompt}], role="contestant",
                     stage="arena", round=round_no, title=f"Aréna {round_no}. kör",
-                    system=ctx.fmt(prompts.ARENA_SYSTEM), on_created=attach)
+                    system=ctx.fmt(prompts.ARENA_SYSTEM), on_created=attach, tools=True)
 
 
 def run_arena(ctx: WorkflowContext, prompt: str, *, multi_turn: bool = True,

@@ -185,6 +185,19 @@ a.btn { text-decoration: none; color: inherit; }
 .versus { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
 @media (max-width: 900px) { .versus { grid-template-columns: 1fr; } }
 
+/* ---------- web tools ---------- */
+details.tools { margin: 0 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); padding: 6px 10px; font-size: 12.5px; }
+details.tools summary { cursor: pointer; color: var(--muted); }
+.tool-call { padding: 6px 0; border-top: 1px dashed var(--border); margin-top: 6px; }
+.tool-call:first-of-type { border-top: none; }
+.tool-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tool-head .mono { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-sources { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 0 22px; }
+.tool-sources a { text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-sources a:hover { text-decoration: underline; }
+.web-results { margin-top: 8px; font-size: 12.5px; }
+.web-results a { display: block; }
+
 /* ---------- markdown ---------- */
 .md { word-wrap: break-word; }
 .md > :first-child { margin-top: 0; }

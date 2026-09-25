@@ -5,7 +5,7 @@ from __future__ import annotations
 from .base import (  # noqa: F401
     Cancelled, CancelToken, ChatResult, ConnectionInterrupted, EmptyResponse,
     EndpointUnreachable, HTTPStatusError, InvalidResponse, LLMConfig, LLMError,
-    LLMProvider, LLMTimeout, ModelError, fill_message, new_message,
+    LLMProvider, LLMTimeout, ModelError, ToolsUnsupported, fill_message, new_message,
 )
 from .openai_compat import OpenAICompatProvider
 

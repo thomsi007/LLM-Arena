@@ -66,6 +66,29 @@ function globalCard() {
   </div>`;
 }
 
+function webCard() {
+  const s = state.project.settings;
+  const sel = (key, opts) => `<select data-setting="${key}">${opts.map(([v, l]) => `<option value="${v}" ${String(s[key]) === String(v) ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+  return `<div class="card"><div class="card-head"><h2>🌐 Webes eszközök (élő információ)</h2><span class="spacer"></span>
+      <label class="check"><input type="checkbox" data-setting="web_enabled" ${s.web_enabled ? "checked" : ""}> Engedélyezve</label></div>
+    <p class="hint">A modellek szükség esetén maguk döntik el, hogy keresnek-e a weben (<code>web_search</code>) vagy elolvasnak-e egy oldalt (<code>fetch_url</code>).
+      Aktív: Aréna, Vita, az elemzés és a tervezési lépések. A válaszkártyákon látszik minden keresés és forrás.</p>
+    <div class="grid3">
+      <label class="field"><span>Keresőmotor</span>${sel("web_backend", [["duckduckgo", "DuckDuckGo (kulcs nélkül)"], ["searxng", "SearXNG (saját példány)"], ["brave", "Brave Search API"]])}</label>
+      <label class="field"><span>SearXNG URL</span><input type="url" data-setting="web_searxng_url" value="${esc(s.web_searxng_url)}" placeholder="http://127.0.0.1:8888"></label>
+      <label class="field"><span>Brave API-kulcs</span><input type="password" data-setting="web_brave_api_key" value="${esc(s.web_brave_api_key)}" autocomplete="off" placeholder="nincs"></label>
+      <label class="field"><span>Találatok száma</span><input type="number" min="1" max="15" data-setting="web_max_results" value="${s.web_max_results}"></label>
+      <label class="field"><span>Max. eszközhívás / válasz</span><input type="number" min="0" max="12" data-setting="web_max_calls" value="${s.web_max_calls}"></label>
+      <label class="field"><span>Tool-hívás módja</span>${sel("web_tool_mode", [["auto", "Automatikus (natív, ha megy)"], ["native", "Natív (OpenAI tools)"], ["text", "Szöveges (<tool_call>)"]])}</label>
+    </div>
+    <label class="check"><input type="checkbox" data-setting="web_allow_private" ${s.web_allow_private ? "checked" : ""}> Helyi hálózati címek (localhost, LAN) lekérésének engedélyezése</label>
+    <div class="row mt"><input type="text" id="web-q" placeholder="Próba-keresés, pl. llama.cpp latest release" style="flex:1">
+      <button class="btn" id="web-test">🔎 Keresés tesztelése</button></div>
+    <div class="web-results" id="web-results"></div>
+    <p class="hint">Natív tool-híváshoz a llama-servert <code>--jinja</code> kapcsolóval indítsd. Ha a szerver nem támogatja, a program automatikusan szöveges protokollra vált.</p>
+  </div>`;
+}
+
 function collect() {
   const llms = { A: {}, B: {} };
   root.querySelectorAll("[data-slot][data-key]").forEach((el) => {
@@ -104,7 +127,7 @@ export default {
     root = el;
     root.innerHTML = `<h1>LLM beállítások</h1>
       <p class="subtitle">Két független, OpenAI-kompatibilis endpoint (llama.cpp <code>llama-server</code>, vLLM, LM Studio, Ollama /v1…). A változások automatikusan mentődnek.</p>
-      <div class="grid2">${llmCard("A")}${llmCard("B")}</div>${globalCard()}`;
+      <div class="grid2">${llmCard("A")}${llmCard("B")}</div>${globalCard()}${webCard()}`;
     root.addEventListener("input", (e) => {
       if (e.target.dataset.key === "temperature") root.querySelector(`#temp-${e.target.dataset.slot}`).textContent = e.target.value;
       clearTimeout(saveTimer);
@@ -112,6 +135,19 @@ export default {
     });
     root.addEventListener("change", (e) => { if (e.target.type === "checkbox" || e.target.tagName === "SELECT") save(true); });
     root.addEventListener("click", async (e) => {
+      if (e.target.id === "web-test") {
+        const out = root.querySelector("#web-results");
+        e.target.disabled = true;
+        out.innerHTML = '<span class="hint">Keresés…</span>';
+        try {
+          await save(true);
+          const r = (await api.webTest(root.querySelector("#web-q").value)).result;
+          out.innerHTML = r.ok
+            ? `<div class="hint">✅ ${esc(r.summary)} (${r.duration}s)</div>` + r.sources.map((s, i) => `<a href="${esc(/^https?:/i.test(s.url) ? s.url : "#")}" target="_blank" rel="noopener noreferrer">[${i + 1}] ${esc(s.title)}</a>`).join("")
+            : `<div class="errbox">${esc(r.summary)}</div>`;
+        } catch (err) { out.innerHTML = `<div class="errbox">${esc(err.message)}</div>`; } finally { e.target.disabled = false; }
+        return;
+      }
       const t = e.target.closest("[data-test]");
       if (t) {
         const slot = t.dataset.test;

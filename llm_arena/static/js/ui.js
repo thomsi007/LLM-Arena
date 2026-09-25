@@ -72,11 +72,13 @@ export function messageCard(msgOrId, opts = {}) {
   const body = content
     ? `<div class="md" data-live-content="${msg.id}">${markdown(content)}</div>`
     : streaming ? `<div class="md hint" data-live-content="${msg.id}">Várakozás az első tokenre…</div>` : "";
+  const tools = toolCallsHtml(msg.tool_calls);
   return `<div class="msg slot-${msg.slot} ${streaming ? "streaming" : ""}" data-msg-id="${msg.id}">
     <div class="msg-head">${slotBadge(msg.slot)}<span class="who">${esc(opts.title || msg.title || llmName(msg.slot))}</span>
       <span class="model" title="${esc(msg.model)}">${esc(msg.model || "")}</span><span class="spacer"></span>
       ${opts.extraHead || ""}${statusBadge(streaming ? "streaming" : msg.status)}</div>
     <div class="msg-body">
+      ${tools}
       ${reasoning ? `<details class="reasoning"><summary>Gondolatmenet (${reasoning.length} karakter)</summary><pre data-live-reasoning="${msg.id}">${esc(reasoning)}</pre></details>` : ""}
       ${body}
       ${err ? `<div class="errbox"><strong>${esc(err.label || "Hiba")}</strong>: ${esc(err.message)}${err.status ? ` (HTTP ${err.status})` : ""}</div>` : ""}
@@ -92,6 +94,25 @@ export function messageCard(msgOrId, opts = {}) {
       <span class="actions">${actions.join("")}</span>
     </div>
   </div>`;
+}
+
+const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? u : "#");
+
+/** Web tool calls of a message: query / URL, status, and clickable sources. */
+export function toolCallsHtml(calls) {
+  if (!calls || !calls.length) return "";
+  const rows = calls.map((c) => {
+    const icon = c.name === "web_search" ? "🔎" : "🌐";
+    const arg = c.arguments?.query || c.arguments?.url || "";
+    const st = c.status === "running" ? '<span class="badge running">keres…</span>'
+      : c.status === "error" ? `<span class="badge error" title="${esc(c.error || "")}">hiba</span>` : "";
+    const src = (c.sources || []).slice(0, 6).map((s, i) =>
+      `<a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer" title="${esc(s.url)}">[${i + 1}] ${esc((s.title || s.url).slice(0, 70))}</a>`).join("");
+    return `<div class="tool-call"><div class="tool-head">${icon} <b>${c.name === "web_search" ? "Webes keresés" : "Oldal olvasása"}</b>
+      <span class="mono">${esc(arg)}</span> ${st}<span class="hint">${esc(c.status === "done" ? c.summary || "" : "")}</span></div>
+      ${src ? `<div class="tool-sources">${src}</div>` : ""}</div>`;
+  }).join("");
+  return `<details class="tools" ${calls.some((c) => c.status === "running") ? "open" : ""}><summary>🌐 ${calls.length} webes eszközhívás</summary>${rows}</details>`;
 }
 
 let liveFrame = null;

@@ -19,6 +19,8 @@ from .consensus import run_consensus
 STAGES = prompts.DESIGN_STAGES
 STAGE_KEYS = [s[0] for s in STAGES]
 FIX_SEVERITIES = ("critical", "high", "medium")
+# Stages where live web information (library versions, APIs, standards) helps.
+WEB_STAGES = {"requirements", "missing_requirements", "architecture", "modules", "algorithms", "design_review"}
 
 
 def new_design(requirements: str, developer: str) -> dict:
@@ -143,7 +145,8 @@ def _system(ctx: WorkflowContext, design: dict, slot: str) -> str:
 def _generic(ctx: WorkflowContext, design: dict, key: str, st: dict, _run_tests: bool) -> None:
     slot = _slot(design, st["actor"])
     msg = ctx.call(slot, _stage_prompt(ctx, design, key, slot), role="developer" if slot == design["developer"]
-                   else "reviewer", stage=key, title=st["label"], system=_system(ctx, design, slot))
+                   else "reviewer", stage=key, title=st["label"], system=_system(ctx, design, slot),
+                   tools=key in WEB_STAGES)
     data = extract_json(msg["content"])
     with ctx.store.mutate():
         msg["structured"] = data
@@ -161,9 +164,10 @@ def _architecture(ctx: WorkflowContext, design: dict, key: str, st: dict, run_te
     ctx.log("info", "Architektúra: mindkét modell önálló javaslatot tesz, majd közös döntés.")
     results = ctx.parallel({
         dev: lambda: ctx.call(dev, _stage_prompt(ctx, design, key, dev), role="developer", stage=key,
-                              title="Architektúra-javaslat", system=_system(ctx, design, dev)),
+                              title="Architektúra-javaslat", system=_system(ctx, design, dev), tools=True),
         rev: lambda: ctx.call(rev, _stage_prompt(ctx, design, key, rev, prompts.DESIGN_ARCH_ALT), role="reviewer",
-                              stage=key, title="Alternatív architektúra-javaslat", system=_system(ctx, design, rev)),
+                              stage=key, title="Alternatív architektúra-javaslat", system=_system(ctx, design, rev),
+                              tools=True),
     })
     proposals = {s: (m or {}).get("content", "") for s, (m, e) in results.items() if e is None}
     msg_ids = [m["id"] for m, e in results.values() if e is None and m]

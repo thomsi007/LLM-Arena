@@ -141,6 +141,10 @@ class ConnectionInterrupted(LLMError):
     kind, retryable, label = "interrupted", True, "Megszakadt kapcsolat"
 
 
+class ToolsUnsupported(LLMError):
+    kind, label = "tools_unsupported", "Az endpoint nem támogatja a natív tool-hívást"
+
+
 class Cancelled(LLMError):
     kind, label = "cancelled", "Megszakítva"
 
@@ -218,6 +222,7 @@ class ChatResult:
     attempts: int = 1
     streamed: bool = False
     raw_usage: dict = field(default_factory=dict)
+    tool_calls: list = field(default_factory=list)   # native OpenAI-style tool calls
 
 
 def new_message(*, slot: str, model: str, role: str, workflow: str,

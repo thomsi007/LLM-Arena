@@ -233,6 +233,21 @@ class MockLlama:
                     return
                 text = "" if mode == "empty" else respond(body.get("messages", []), mock.name)
                 think = ""
+                tool_calls = None
+                msgs = body.get("messages", [])
+                last_user = next((m.get("content", "") for m in reversed(msgs) if m.get("role") == "user"), "")
+                got_result = any(m.get("role") == "tool" for m in msgs) or "<tool_response" in last_user
+                if "LIVE_INFO" in json.dumps(msgs) and not got_result:
+                    if body.get("tools") and mock.mode != "no_native_tools":
+                        tool_calls = [{"id": "call_1", "type": "function", "function": {
+                            "name": "web_search", "arguments": json.dumps({"query": "llama.cpp release"})}}]
+                        text = ""
+                    else:
+                        text = '<tool_call>{"name": "web_search", "arguments": {"query": "llama.cpp release"}}</tool_call>'
+                elif got_result and "LIVE_INFO" in json.dumps(msgs):
+                    text = "A legfrissebb információ szerint a válasz: b9999 [1].\n\nForrások: [1] https://example.org/rel"
+                if body.get("tools") and mock.mode == "no_native_tools":
+                    return self._json({"error": {"message": "tools param requires --jinja flag"}}, 500)
                 if mode == "thinking" and (body.get("chat_template_kwargs") or {}).get("enable_thinking") is not False:
                     think, text = "Let me think about this carefully...", ""
                 if mode == "model_error" and not body.get("stream"):
@@ -241,7 +256,8 @@ class MockLlama:
                     return self._json({
                         "model": mock.name,
                         "choices": [{"index": 0, "message": {"role": "assistant", "content": text,
-                                                             "reasoning_content": think},
+                                                             "reasoning_content": think,
+                                                             **({"tool_calls": tool_calls} if tool_calls else {})},
                                      "finish_reason": "stop"}],
                         "usage": {"prompt_tokens": 11, "completion_tokens": max(1, len(text) // 4),
                                   "total_tokens": 11 + max(1, len(text) // 4)},
@@ -251,6 +267,19 @@ class MockLlama:
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.close_connection = True
+                if tool_calls:
+                    tc = tool_calls[0]
+                    for part in ({"index": 0, "id": tc["id"], "type": "function",
+                                  "function": {"name": "web_search", "arguments": ""}},
+                                 {"index": 0, "function": {"arguments": tc["function"]["arguments"][:10]}},
+                                 {"index": 0, "function": {"arguments": tc["function"]["arguments"][10:]}}):
+                        chunk = {"model": mock.name, "choices": [{"index": 0, "delta": {"tool_calls": [part]},
+                                                                  "finish_reason": None}]}
+                        self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                    end = {"model": mock.name, "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+                    self.wfile.write(f"data: {json.dumps(end)}\n\ndata: [DONE]\n\n".encode())
+                    self.wfile.flush()
+                    return
                 pieces = [text[i:i + 12] for i in range(0, len(text), 12)] or [""]
                 try:
                     for n, p in enumerate(pieces):

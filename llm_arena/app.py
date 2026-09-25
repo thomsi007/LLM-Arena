@@ -146,11 +146,17 @@ class ArenaApp:
             if isinstance(data.get("settings"), dict):
                 s = p["settings"]
                 for k, v in data["settings"].items():
-                    if k in s:
+                    if k in s and not (k == "web_brave_api_key" and v == "***"):
                         s[k] = _coerce(v, s[k])
                 s["max_fix_iterations"] = max(0, min(int(s["max_fix_iterations"]), 10))
                 s["debate_rounds"] = max(1, min(int(s["debate_rounds"]), 8))
                 s["test_timeout"] = max(5, min(int(s["test_timeout"]), 600))
+                s["web_max_calls"] = max(0, min(int(s["web_max_calls"]), 12))
+                s["web_max_results"] = max(1, min(int(s["web_max_results"]), 15))
+                if s["web_backend"] not in ("duckduckgo", "searxng", "brave"):
+                    s["web_backend"] = "duckduckgo"
+                if s["web_tool_mode"] not in ("auto", "native", "text"):
+                    s["web_tool_mode"] = "auto"
                 for k in ("developer", "moderator"):
                     if s[k] not in SLOTS:
                         s[k] = "A"
@@ -164,7 +170,7 @@ class ArenaApp:
     def public_config(self) -> dict:
         snap = self.store.snapshot()
         return {"llms": {s: LLMConfig.from_dict(snap["llms"][s], s).to_dict(include_secret=False) for s in SLOTS},
-                "settings": snap["settings"], "name": snap["name"], "task": snap["task"], "id": snap["id"]}
+                "settings": _mask_settings(snap["settings"]), "name": snap["name"], "task": snap["task"], "id": snap["id"]}
 
     def _provider(self, slot: str, override: dict | None = None):
         _check_slot(slot)
@@ -261,6 +267,13 @@ class ArenaApp:
             current.pop(d, None)
         v = self.store.set_code(current, source="manual", note=note or "Kézi módosítás", replace=True)
         return {"version": v["version"]}
+
+
+def _mask_settings(settings: dict) -> dict:
+    s = dict(settings)
+    if s.get("web_brave_api_key"):
+        s["web_brave_api_key"] = "***"
+    return s
 
 
 def _check_slot(slot: str) -> None:

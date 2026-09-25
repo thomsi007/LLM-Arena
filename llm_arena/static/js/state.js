@@ -91,6 +91,9 @@ function handleEvent(jobId, evt) {
     case "state":
       refresh(200);
       break;
+    case "tool":
+      refresh(60);
+      break;
     case "log":
       notify("log");
       break;

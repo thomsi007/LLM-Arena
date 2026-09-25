@@ -47,6 +47,7 @@ python3 -m llm_arena
 | **Tesztelés** | Fejlesztő: unit + integrációs; reviewer: edge-case, hibakezelési, teljesítménytesztek. Bukásnál mindkét modell elemzi a hibát, a fejlesztő javít (kódot, vagy ha a teszt hibás, a tesztet), újrafuttatás – max. iterációig. Kimutatás: sikeres/sikertelen tesztek, javított hibák, fennmaradó problémák, végleges kód. |
 | **Közös döntés** | Nem győztes–vesztes: mindkét modell mindkét *anonimizált* megoldást pontozza (helyesség, teljesség, megvalósíthatóság, biztonság, teljesítmény, tesztelhetőség), szempontonkénti átlagok, erősségek/gyengeségek, átvett legjobb ötletek, majd **közösen összeállított megoldás**, amit a másik modell ellenőriz. |
 | **Teljes folyamat** | A fenti lépések automatikusan egymás után, folytatható állapottal, végleges jelentéssel. |
+| **Webes eszközök** | A modellek szükség esetén élő információt kereshetnek a weben (`web_search`) és elolvashatnak oldalakat (`fetch_url`) – maguk döntik el, mikor kell. Aktív: Aréna, Vita, elemzés, tervezési lépések. Keresőmotor: DuckDuckGo (kulcs nélkül), saját SearXNG vagy Brave Search API. Minden keresés és forrás látszik a válaszkártyán és az exportban. |
 | **HTML export** | Minden fontos fülön „⤓ HTML export” gomb (Aréna, Vita, Programtervezés, Kód, Tesztelés, Közös döntés, Teljes folyamat), a Projekt fülön teljes riport. Önálló, modern, jól olvasható HTML fájl: beágyazott stílus, világos/sötét téma automatikusan, nyomtatható PDF-be; a modellválaszok biztonságosan escape-elve. |
 | **Napló** | Minden hívás, hiba, újrapróbálás, teszteredmény; szűrés, letöltés. |
 | **Projekt** | Mentés, betöltés, új projekt, export/import (`.arena.json`, API-kulcsok opcionálisan), beszélgetés exportja (Markdown/JSON), kód ZIP. Automatikus mentés 10 mp-enként és minden folyamat végén. |
@@ -100,6 +101,19 @@ Endpoint elérhetetlen, timeout (teljes kérésre is), hibás JSON, HTTP hibák 
 az Arénában a másik modell válasza megmarad, a vita/tervezés/pipeline állapota mentődik és folytatható. Hibás
 JSON-válasz esetén a rendszer egyszer javítást kér a modelltől.
 
+### Webes keresés
+
+* **Natív tool-hívás** (OpenAI `tools`): a llama-servert `--jinja` kapcsolóval indítsd. Ha a szerver elutasítja a
+  `tools` paramétert, a program automatikusan a szöveges `<tool_call>{...}</tool_call>` protokollra vált (ezt a
+  Qwen/Hermes-stílusú modellek natívan ismerik). A mód a beállításokban rögzíthető is.
+* A modell válaszonként legfeljebb „Max. eszközhívás” keresést/letöltést végezhet; utána válaszolnia kell.
+* A rendszerprompt tartalmazza az aktuális dátumot, és forrásmegjelölést (`[1]`, URL-ek) kér.
+* **Biztonság:** a `fetch_url` csak http/https címet kér le, alapból tiltja a belső hálózati címeket (localhost, LAN,
+  link-local – minden átirányításnál újra ellenőrizve), 2 MB és 15 s korláttal. Egy sikertelen keresés nem állítja le
+  a munkafolyamatot: a modell megkapja a hibát, és a meglévő tudásával válaszol.
+* A DuckDuckGo HTML-oldalát elemzi (API-kulcs nélkül); sűrű használatnál korlátozhat – ilyenkor ajánlott egy saját
+  SearXNG példány (`format: json` engedélyezve) vagy a Brave Search API.
+
 ### Tippek helyi modellekhez
 
 * Kis kontextusú modelleknél csökkentsd a „Kontextus-keret” értéket (a rendszer ehhez vágja a promptokat).
@@ -115,6 +129,6 @@ JSON-válasz esetén a rendszer egyszer javítást kér a modelltől.
 python3 -m unittest discover -s tests -t .
 ```
 
-39 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
+61 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
 újrapróbálás), parserek, sandbox (időtúllépés, importhiba), munkafolyamatok (aréna hibaizoláció, vita folytatása hiba
 után, teljes pipeline javító ciklussal), mentés/export/import, HTTP API + SSE.

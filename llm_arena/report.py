@@ -210,12 +210,23 @@ def message_card(ctx: Ctx, m: dict | None, title: str = "", content: str | None 
     if m.get("reasoning"):
         reasoning = (f'<details class="reasoning"><summary>Gondolatmenet ({len(m["reasoning"])} karakter)</summary>'
                      f'<pre>{e(m["reasoning"])}</pre></details>')
+    tools = ""
+    if m.get("tool_calls"):
+        rows = []
+        for c in m["tool_calls"]:
+            arg = (c.get("arguments") or {}).get("query") or (c.get("arguments") or {}).get("url") or ""
+            label = "🔎 Webes keresés" if c.get("name") == "web_search" else "🌐 Oldal olvasása"
+            src = "".join(f'<li><a href="{e(s["url"])}" rel="noopener noreferrer">{e(s.get("title") or s["url"])}</a></li>'
+                          for s in (c.get("sources") or [])[:6] if str(s.get("url", "")).startswith(("http://", "https://")))
+            rows.append(f'<div class="tool"><b>{label}</b> <code>{e(arg)}</code> <span class="muted">{e(c.get("summary"))}</span>'
+                        f'{"<ol>" + src + "</ol>" if src else ""}</div>')
+        tools = f'<details class="tools" open><summary>{len(m["tool_calls"])} webes eszközhívás</summary>{"".join(rows)}</details>'
     err_html = (f'<div class="error"><strong>{e(err.get("label", "Hiba"))}</strong>: {e(err.get("message"))}</div>'
                 if err else "")
     return (f'<article class="msg slot-{e(m["slot"])}">'
             f'<header>{badge("LLM " + m["slot"], m["slot"].lower())}<strong>{e(title or m.get("title") or ctx.name(m["slot"]))}</strong>'
             f'<span class="model">{e(m.get("model"))}</span><span class="grow"></span>{status(m.get("status"))}</header>'
-            f'<div class="body">{reasoning}{body or "<p class=muted>(üres)</p>"}{err_html}</div>'
+            f'<div class="body">{tools}{reasoning}{body or "<p class=muted>(üres)</p>"}{err_html}</div>'
             f'<footer>{" · ".join(e(x) for x in meta)}</footer></article>')
 
 
@@ -557,6 +568,8 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;background
 blockquote{border-left:4px solid var(--border);margin:8px 0;padding:2px 14px;color:var(--muted)}
 li.sub{margin-left:18px}.conclusion{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:12px;padding:12px 18px}
 .error{background:rgba(217,56,71,.08);border:1px solid var(--err);border-radius:10px;padding:8px 12px;margin:8px 0}
+details.tools{background:var(--soft);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px}
+details.tools summary{cursor:pointer;color:var(--muted)}.tool{margin-top:6px}.tool ol{margin:4px 0 0;padding-left:22px}
 details.reasoning{margin-bottom:10px;color:var(--muted);font-size:13px}details.reasoning pre{max-height:320px;overflow:auto}
 ol.steps li{margin:4px 0}ul.toc{columns:2}a{color:var(--accent)}
 .stage{border-left:3px solid var(--border);padding-left:16px;margin:18px 0}
