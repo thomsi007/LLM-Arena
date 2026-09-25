@@ -47,6 +47,8 @@ HINTS = {
                   "DOCX, XLSX, PDF (pypdf csomaggal), képek.",
     "web": "A webes keresés nem sikerült. Ellenőrizd az internetkapcsolatot / proxyt, vagy válts keresőmotort "
            "(SearXNG, Brave) a Beállításokban.",
+    "searxng": "A SearXNG-hez a legegyszerűbb a Docker Desktop (ingyenes). Ha már fut egy SearXNG, használd a "
+               "„Keresés helyi SearXNG után” gombot.",
     "internal": "Váratlan programhiba. A „Részletek” alatti szöveget másold ki és küldd el a hibajelentéssel.",
 }
 

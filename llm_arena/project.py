@@ -50,6 +50,9 @@ def default_settings() -> dict:
         "web_browser_channel": "auto",    # auto | chromium | msedge | chrome
         "web_browser_path": "",           # optional browser executable
         "web_browser_headless": True,
+        "web_searxng_port": 8888,         # local SearXNG managed by the arena
+        "web_searxng_mode": "auto",       # auto | docker | native
+        "web_searxng_autostart": False,   # start the local SearXNG when the arena starts
     }
 
 

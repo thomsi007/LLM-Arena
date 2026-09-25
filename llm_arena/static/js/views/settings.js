@@ -1,6 +1,6 @@
 // LLM A / LLM B configuration, connection test, model auto-detection, global settings.
 import { api } from "../api.js";
-import { state, refresh } from "../state.js";
+import { state, refresh, trackJob } from "../state.js";
 import { esc, toast, showError, errorBox } from "../ui.js";
 
 let root;
@@ -81,6 +81,21 @@ function webCard() {
       <label class="field"><span>Max. eszközhívás / válasz</span><input type="number" min="0" max="12" data-setting="web_max_calls" value="${s.web_max_calls}"></label>
       <label class="field"><span>Tool-hívás módja</span>${sel("web_tool_mode", [["auto", "Automatikus (natív, ha megy)"], ["native", "Natív (OpenAI tools)"], ["text", "Szöveges (<tool_call>)"]])}</label>
     </div>
+    <div class="sx-box">
+      <div class="row"><h3 style="margin:0">🔎 Helyi SearXNG (ingyenes, saját metakereső)</h3><span class="spacer"></span><span id="sx-state" class="badge">állapot…</span></div>
+      <p class="hint">Egy kattintással elindítja a hivatalos SearXNG-t Docker-konténerben (a JSON-kimenet és a helyi használathoz szükséges beállítások automatikusak),
+        majd a címét beírja a SearXNG URL mezőbe, és keresőmotornak választja. Ha már fut egy példány, a „Keresés” gomb megtalálja és átveszi.</p>
+      <div class="row">
+        <label class="field" style="max-width:120px"><span>Port</span><input type="number" min="1024" max="65535" data-setting="web_searxng_port" value="${s.web_searxng_port}"></label>
+        <label class="field" style="max-width:280px;min-width:230px"><span>Futtatás módja</span>${sel("web_searxng_mode", [["auto", "Automatikus (Docker)"], ["docker", "Docker"], ["native", "Python (searx csomag)"]])}</label>
+        <label class="check" style="margin-top:14px"><input type="checkbox" data-setting="web_searxng_autostart" ${s.web_searxng_autostart ? "checked" : ""}> Induljon az LLM Arénával együtt</label>
+        <span class="spacer"></span>
+        <button class="btn primary" id="sx-start" style="margin-top:12px">▶ SearXNG indítása</button>
+        <button class="btn" id="sx-detect" style="margin-top:12px">🔍 Keresés helyi SearXNG után</button>
+        <button class="btn danger" id="sx-stop" style="margin-top:12px">■ Leállítás</button>
+      </div>
+      <div id="sx-info" class="web-results"></div>
+    </div>
     <div class="grid3">
       <label class="field"><span>Találat / domain (ismétlődés-szűrés)</span><input type="number" min="1" max="5" data-setting="web_per_domain" value="${s.web_per_domain}"></label>
       <label class="field"><span>Valódi böngésző (Playwright + stealth)</span>${sel("web_browser", [["fallback", "Tartalék – ha az egyszerű letöltés blokkolt (ajánlott)"], ["always", "Mindig böngészővel olvas"], ["off", "Kikapcsolva"]])}</label>
@@ -100,6 +115,29 @@ function webCard() {
     <p class="hint">Natív tool-híváshoz a llama-servert <code>--jinja</code> kapcsolóval indítsd. Ha a szerver nem támogatja, a program automatikusan szöveges protokollra vált.<br>
       Böngésző telepítése: <code>pip install playwright playwright-stealth</code>, majd <code>python -m playwright install chromium</code> – vagy válaszd a gépen lévő Edge/Chrome böngészőt.</p>
   </div>`;
+}
+
+async function loadSearxStatus() {
+  const badge = root.querySelector("#sx-state");
+  const info = root.querySelector("#sx-info");
+  if (!badge) return;
+  try {
+    const st = (await api.searxngStatus()).status;
+    const p = st.probe;
+    if (p && p.searxng && p.json) {
+      badge.className = "badge ok"; badge.textContent = "fut";
+      info.innerHTML = `<div class="hint">✅ ${esc(p.instance_name || "SearXNG")} elérhető: <span class="mono">${esc(p.url)}</span>${st.container ? ` · konténer: ${esc(st.container)}` : ""}</div>`;
+    } else if (p && p.searxng) {
+      badge.className = "badge medium"; badge.textContent = "JSON tiltva";
+      info.innerHTML = errorBox({ label: "A SearXNG fut, de nem ad JSON-t", message: p.error,
+        hint: "A settings.yml-ben: search.formats: [html, json]. A „SearXNG indítása” gombbal indított példánynál ez automatikus." });
+    } else {
+      badge.className = "badge"; badge.textContent = st.container ? `konténer: ${st.container}` : "nem fut";
+      const d = st.docker || {};
+      info.innerHTML = d.ok ? `<div class="hint">Docker ${esc(d.version)} elérhető – indítható.</div>`
+        : `<div class="hint">⚠ ${esc(d.message || "")} ${esc(d.hint || "")}${st.native_available ? " (A Python mód elérhető.)" : ""}</div>`;
+    }
+  } catch (e) { info.innerHTML = errorBox(e, "SearXNG állapot"); }
 }
 
 function collect() {
@@ -136,12 +174,22 @@ function renderSteps(slot, res) {
   state.conn[slot] = { ok: res.ok, model: res.model, error: res.ok ? null : "kapcsolati hiba" };
 }
 
+function applySearxFields(url) {
+  const u = root.querySelector('[data-setting="web_searxng_url"]');
+  const b = root.querySelector('[data-setting="web_backend"]');
+  if (u) u.value = url;
+  if (b) b.value = "searxng";
+  state.project.settings.web_searxng_url = url;
+  state.project.settings.web_backend = "searxng";
+}
+
 export default {
   mount(el) {
     root = el;
     root.innerHTML = `<h1>LLM beállítások</h1>
       <p class="subtitle">Két független, OpenAI-kompatibilis endpoint (llama.cpp <code>llama-server</code>, vLLM, LM Studio, Ollama /v1…). A változások automatikusan mentődnek.</p>
       <div class="grid2">${llmCard("A")}${llmCard("B")}</div>${globalCard()}${webCard()}`;
+    loadSearxStatus();
     root.addEventListener("input", (e) => {
       if (e.target.dataset.key === "temperature") root.querySelector(`#temp-${e.target.dataset.slot}`).textContent = e.target.value;
       clearTimeout(saveTimer);
@@ -149,6 +197,38 @@ export default {
     });
     root.addEventListener("change", (e) => { if (e.target.type === "checkbox" || e.target.tagName === "SELECT") save(true); });
     root.addEventListener("click", async (e) => {
+      if (e.target.id === "sx-start") {
+        try {
+          await save(true);
+          trackJob((await api.searxngStart()).job);
+          root.querySelector("#sx-info").innerHTML = '<div class="hint">Indítás… (első alkalommal az image letöltése néhány percig tarthat – a folyamat a fejlécben látszik)</div>';
+        } catch (err) { showError(err, "SearXNG indítása"); }
+        return;
+      }
+      if (e.target.id === "sx-stop") {
+        try { const r = await api.searxngStop(); toast(r.stopped ? "SearXNG leállítva" : "Nem futott kezelt SearXNG", "ok"); loadSearxStatus(); }
+        catch (err) { showError(err, "SearXNG leállítása"); }
+        return;
+      }
+      if (e.target.id === "sx-detect") {
+        e.target.disabled = true;
+        try {
+          await save(true);
+          const r = await api.searxngDetect();
+          if (r.applied) {
+            applySearxFields(r.applied);
+            toast(`SearXNG megtalálva és beállítva: ${r.applied}`, "ok", 5000);
+          } else if (r.found.length) {
+            showError({ label: "Találtam SearXNG-t, de nem ad JSON-t", message: r.found.map((f) => `${f.url}: ${f.error}`).join("; "),
+              hint: "A settings.yml-ben kapcsold be: search.formats: [html, json], majd indítsd újra." }, "SearXNG");
+          } else {
+            showError({ label: "Nem találtam futó SearXNG-t", message: "A helyi gépen a szokásos portokon (8888, 8080, 8081, …) nem válaszolt SearXNG.",
+              hint: "Indítsd el a „▶ SearXNG indítása” gombbal (Docker Desktop szükséges), vagy írd be kézzel a címét a SearXNG URL mezőbe." }, "SearXNG");
+          }
+          loadSearxStatus();
+        } catch (err) { showError(err, "SearXNG keresése"); } finally { e.target.disabled = false; }
+        return;
+      }
       if (e.target.id === "web-cache") {
         try { await api.webCacheClear(); toast("Webes gyorsítótár ürítve", "ok"); } catch (err) { showError(err, "Gyorsítótár"); }
         return;
@@ -223,6 +303,16 @@ export default {
       }
     });
   },
-  update() { /* form is persistent; nothing to redraw */ },
+  update(reason) {
+    // After the SearXNG job: take over the new URL / backend into the (persistent) form.
+    if (typeof reason === "string" && reason.startsWith("job_end:")) {
+      const job = state.jobs.get(reason.slice(8));
+      if (job?.kind === "searxng") {
+        if (job.status === "done" && job.result?.url) applySearxFields(job.result.url);
+        else api.project().then((d) => { if (d.project.settings.web_searxng_url) applySearxFields(d.project.settings.web_searxng_url); }).catch(() => {});
+        loadSearxStatus();
+      }
+    }
+  },
   unmount() { if (saveTimer) save(true); },
 };

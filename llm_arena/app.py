@@ -20,7 +20,8 @@ from .workflows import arena, consensus, debate, design, pipeline, testing
 from .workflows.common import SLOTS, WorkflowContext, message_text
 
 # Workflows that must not run twice at the same time (they share a state section).
-EXCLUSIVE = {"debate": "debate", "design": "design", "pipeline": "pipeline", "testing": "testing"}
+EXCLUSIVE = {"debate": "debate", "design": "design", "pipeline": "pipeline", "testing": "testing",
+             "searxng": "searxng"}
 
 
 class ConflictError(Exception):
@@ -34,6 +35,11 @@ class ArenaApp:
         self._stop = threading.Event()
         if autosave_interval > 0:
             threading.Thread(target=self._autosave_loop, args=(autosave_interval,), daemon=True).start()
+        if self.store.settings().get("web_searxng_autostart"):
+            try:
+                self.start_searxng()
+            except Exception as e:  # noqa: BLE001 - never block startup
+                self.store.log("warning", f"A SearXNG automatikus indítása nem sikerült: {e}", source="searxng")
 
     def shutdown(self) -> None:
         self._stop.set()
@@ -62,7 +68,7 @@ class ArenaApp:
         section = EXCLUSIVE.get(kind)
         if section:
             busy = [j for j in self.jobs.running() if EXCLUSIVE.get(j.kind) == section
-                    or j.kind == "pipeline" or kind == "pipeline"]
+                    or (kind != "searxng" and j.kind != "searxng" and (j.kind == "pipeline" or kind == "pipeline"))]
             if busy:
                 raise ConflictError(f"Már fut egy ütköző folyamat: {busy[0].title}")
         self.store.log("info", f"Feladat indul: {title}", source=kind)
@@ -165,6 +171,63 @@ class ArenaApp:
         return self._start("pipeline", "Teljes folyamat" + (" (folytatás)" if resume else ""),
                            lambda ctx: pipeline.run_pipeline(ctx, task=task, resume=resume, attachments=files))
 
+    # --------------------------------------------------------------- SearXNG
+    def _apply_searxng(self, url: str, how: str) -> None:
+        """Take over a working SearXNG instance into the settings (URL + backend)."""
+        from .tools import web
+        with self.store.mutate() as p:
+            s = p["settings"]
+            s["web_searxng_url"] = url
+            s["web_backend"] = "searxng"
+            s["web_enabled"] = True
+        self.store.save_defaults()
+        web.cache_clear()
+        self.store.log("info", f"SearXNG beállítva keresőmotornak: {url} ({how})", source="searxng")
+
+    def start_searxng(self) -> Job:
+        from .tools import searxng
+        s = self.store.settings()
+        port = int(s.get("web_searxng_port") or 8888)
+        mode = s.get("web_searxng_mode") or "auto"
+
+        def run(ctx: WorkflowContext) -> dict:
+            step = [0.05]
+
+            def progress(msg: str) -> None:
+                step[0] = min(0.95, step[0] + 0.06)
+                ctx.progress(step[0], msg)
+                self.store.log("info", msg, source="searxng")
+
+            ctx.progress(0.03, "SearXNG indítása…")
+            res = searxng.start(self.store.data_dir, port, mode, progress, ctx.job.cancel_token.is_set)
+            self._apply_searxng(res["url"], "elindítva: " + res["mode"])
+            ctx.state_changed("settings")
+            ctx.progress(1.0, f"SearXNG fut: {res['url']}")
+            return res
+
+        return self._start("searxng", "SearXNG indítása", run)
+
+    def stop_searxng(self) -> dict:
+        from .tools import searxng
+        stopped = searxng.stop()
+        self.store.log("info", "SearXNG leállítva." if stopped else "Nem futott kezelt SearXNG.", source="searxng")
+        return {"stopped": stopped}
+
+    def detect_searxng(self, apply: bool = True) -> dict:
+        from .tools import searxng
+        s = self.store.settings()
+        found = searxng.detect([s.get("web_searxng_url") or ""])
+        usable = [f for f in found if f["json"]]
+        applied = None
+        if apply and usable:
+            applied = usable[0]["url"]
+            self._apply_searxng(applied, "felderítve")
+        return {"found": found, "applied": applied}
+
+    def searxng_status(self) -> dict:
+        from .tools import searxng
+        return searxng.status(self.store.settings().get("web_searxng_url") or "")
+
     # ----------------------------------------------------------- attachments
     def upload_attachment(self, name: str, data_b64: str, mime: str = "") -> dict:
         import base64
@@ -233,6 +296,9 @@ class ArenaApp:
                 if s["web_browser_channel"] not in ("auto", "chromium", "msedge", "chrome"):
                     s["web_browser_channel"] = "auto"
                 s["web_per_domain"] = max(1, min(int(s["web_per_domain"]), 5))
+                s["web_searxng_port"] = max(1024, min(int(s["web_searxng_port"]), 65535))
+                if s["web_searxng_mode"] not in ("auto", "docker", "native"):
+                    s["web_searxng_mode"] = "auto"
                 for k in ("developer", "moderator"):
                     if s[k] not in SLOTS:
                         s[k] = "A"

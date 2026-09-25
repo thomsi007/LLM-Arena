@@ -219,6 +219,7 @@ details.tools summary { cursor: pointer; color: var(--muted); }
 .tool-sources a { text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-sources a:hover { text-decoration: underline; }
 .web-results { margin-top: 8px; font-size: 12.5px; }
+.sx-box { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin: 10px 0 14px; background: var(--panel2); }
 .web-results a { display: block; }
 
 /* ---------- markdown ---------- */

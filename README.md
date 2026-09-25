@@ -136,6 +136,23 @@ PDF-ből is kinyeri a szöveget (pypdf-fel), és a modell `focus` kérdése szer
 * a webes tartalomból eltávolítja a chat-sablon tokeneket és a tipikus prompt-injekciós mondatokat, és külső,
   nem megbízható forrásként jelöli.
 
+**Helyi SearXNG egy kattintással (ingyenes, nyílt forráskódú metakereső):**
+Beállítások → Webes eszközök → „▶ SearXNG indítása”. Az LLM Aréna:
+1. ellenőrzi a Dockert (Windows/macOS: az ingyenes [Docker Desktop](https://www.docker.com/products/docker-desktop/) kell, fusson),
+2. létrehozza a `data/searxng/settings.yml`-t (JSON-kimenet bekapcsolva, limiter kikapcsolva, véletlen titkos kulcs),
+3. letölti és elindítja a hivatalos `searxng/searxng` konténert (`llm-arena-searxng`, csak `127.0.0.1:<port>`-on
+   érhető el, újraindul a géppel együtt),
+4. megvárja, amíg válaszol, majd **automatikusan beírja a címét a SearXNG URL mezőbe, és keresőmotornak választja**.
+
+Ha már fut egy SearXNG (akár saját telepítés), a „🔍 Keresés helyi SearXNG után” gomb megtalálja a szokásos portokon
+(8888, 8080, 8081 …), ellenőrzi a JSON-kimenetet, és szintén automatikusan átveszi. Opcionálisan az LLM Arénával
+együtt is indulhat („Induljon az LLM Arénával együtt”). Haladóknak: Python mód (`searx` csomag, hivatalosan csak Linux).
+Kézi indítás Dockerrel, ha szükséges:
+```bash
+docker run -d --name llm-arena-searxng -p 127.0.0.1:8888:8080 -v ./data/searxng:/etc/searxng \
+  -e GRANIAN_HOST=0.0.0.0 searxng/searxng
+```
+
 **Böngésző telepítése (opcionális):**
 ```bash
 pip install playwright playwright-stealth
@@ -164,6 +181,6 @@ A Beállításokban a „🧭 Böngésző tesztelése” gomb megmutatja, melyik
 python3 -m unittest discover -s tests -t .
 ```
 
-88 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
+98 teszt: provider-hibaágak (timeout, 5xx, 4xx, hibás JSON, üres válasz, megszakadt stream, modellhiba, megszakítás,
 újrapróbálás), parserek, sandbox (időtúllépés, importhiba), munkafolyamatok (aréna hibaizoláció, vita folytatása hiba
 után, teljes pipeline javító ciklussal), mentés/export/import, HTTP API + SSE.

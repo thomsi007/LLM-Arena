@@ -200,6 +200,22 @@ class Handler(BaseHTTPRequestHandler):
                            source="web")
         self._json({"ok": True, "result": st})
 
+    @route("GET", "/api/searxng/status")
+    def api_searxng_status(self):
+        self._json({"ok": True, "status": self.app.searxng_status()})
+
+    @route("POST", "/api/searxng/start")
+    def api_searxng_start(self):
+        self._job(self.app.start_searxng())
+
+    @route("POST", "/api/searxng/stop")
+    def api_searxng_stop(self):
+        self._json({"ok": True, **self.app.stop_searxng()})
+
+    @route("POST", "/api/searxng/detect")
+    def api_searxng_detect(self):
+        self._json({"ok": True, **self.app.detect_searxng(bool(self._body().get("apply", True)))})
+
     @route("POST", "/api/web/cache-clear")
     def api_web_cache_clear(self):
         from .tools import web
