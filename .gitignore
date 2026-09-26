@@ -3,3 +3,9 @@ __pycache__/
 /data/
 *.arena.json
 .venv/
+
+# standalone SearXNG manager (local state)
+searxng/config.json
+searxng/data/
+searxng/native/
+searxng/logs/

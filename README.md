@@ -136,6 +136,13 @@ PDF-ből is kinyeri a szöveget (pypdf-fel), és a modell `focus` kérdése szer
 * a webes tartalomból eltávolítja a chat-sablon tokeneket és a tipikus prompt-injekciós mondatokat, és külső,
   nem megbízható forrásként jelöli.
 
+**Önálló SearXNG kezelő – `searxng/` mappa:** `searxng/start.bat` (Windows) vagy `searxng/start.sh` (Linux)
+telepíti a SearXNG-t, ha nincs fent (Docker, vagy Docker nélkül natívan, saját Python környezettel), elindítja, és
+grafikus felületet nyit a beállításaihoz (<http://127.0.0.1:8899/>: mód, port, nyelv, keresőmotorok, próbakeresés,
+saját `settings.yml`, napló). Az LLM Aréna nélkül is használható – részletek: [searxng/README.md](searxng/README.md).
+Az Aréna SearXNG gombjai is ezt a kezelőt hívják, így közös a telepítés és a beállítás (a konfiguráció ilyenkor a
+`searxng/data/settings.yml`, nem a `data/searxng/`).
+
 **Helyi SearXNG egy kattintással (ingyenes, nyílt forráskódú metakereső):**
 Beállítások → Webes eszközök → „▶ SearXNG indítása”. Az LLM Aréna:
 1. ellenőrzi a Dockert (Windows/macOS: az ingyenes [Docker Desktop](https://www.docker.com/products/docker-desktop/) kell);

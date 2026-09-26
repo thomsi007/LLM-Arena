@@ -84,10 +84,11 @@ function webCard() {
     <div class="sx-box">
       <div class="row"><h3 style="margin:0">🔎 Helyi SearXNG (ingyenes, saját metakereső)</h3><span class="spacer"></span><span id="sx-state" class="badge">állapot…</span></div>
       <p class="hint">Egy kattintással elindítja a hivatalos SearXNG-t Docker-konténerben (a JSON-kimenet és a helyi használathoz szükséges beállítások automatikusak),
-        majd a címét beírja a SearXNG URL mezőbe, és keresőmotornak választja. Ha már fut egy példány, a „Keresés” gomb megtalálja és átveszi.</p>
+        majd a címét beírja a SearXNG URL mezőbe, és keresőmotornak választja. Ha már fut egy példány, a „Keresés” gomb megtalálja és átveszi.<br>
+        Önállóan is használható: a <code>searxng/</code> mappában a <code>start.bat</code> (Windows) / <code>start.sh</code> (Linux) telepíti, elindítja, és grafikus felületet nyit a SearXNG beállításaihoz (keresőmotorok, nyelv, port…).</p>
       <div class="row">
         <label class="field" style="max-width:120px"><span>Port</span><input type="number" min="1024" max="65535" data-setting="web_searxng_port" value="${s.web_searxng_port}"></label>
-        <label class="field" style="max-width:280px;min-width:230px"><span>Futtatás módja</span>${sel("web_searxng_mode", [["auto", "Automatikus (Docker)"], ["docker", "Docker"], ["native", "Python (searx csomag)"]])}</label>
+        <label class="field" style="max-width:280px;min-width:230px"><span>Futtatás módja</span>${sel("web_searxng_mode", [["auto", "Automatikus (Docker, ha nincs: natív)"], ["docker", "Docker"], ["native", "Natív (Docker nélkül, Python)"]])}</label>
         <label class="check" style="margin-top:14px"><input type="checkbox" data-setting="web_searxng_autostart" ${s.web_searxng_autostart ? "checked" : ""}> Induljon az LLM Arénával együtt</label>
         <span class="spacer"></span>
         <button class="btn primary" id="sx-start" style="margin-top:12px">▶ SearXNG indítása</button>
@@ -135,7 +136,7 @@ async function loadSearxStatus() {
       badge.className = "badge"; badge.textContent = st.container ? `konténer: ${st.container}` : "nem fut";
       const d = st.docker || {};
       info.innerHTML = d.ok ? `<div class="hint">Docker ${esc(d.version)} elérhető – indítható.</div>`
-        : `<div class="hint">⚠ ${esc(d.message || "")} ${esc(d.hint || "")}${st.native_available ? " (A Python mód elérhető.)" : ""}</div>`;
+        : `<div class="hint">⚠ ${esc(d.message || "")} ${esc(d.hint || "")}${st.manager ? " Docker nélkül a natív mód automatikusan települ (első indítás néhány perc)." : st.native_available ? " (A Python mód elérhető.)" : ""}</div>`;
     }
   } catch (e) { info.innerHTML = errorBox(e, "SearXNG állapot"); }
 }

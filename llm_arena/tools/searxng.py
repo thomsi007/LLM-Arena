@@ -22,6 +22,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -141,7 +142,7 @@ def probe(url: str, timeout: float = 3.0) -> dict:
 
 def detect(extra_urls: list[str] | None = None) -> list[dict]:
     """Look for running SearXNG instances on localhost (and the given URLs)."""
-    urls = [u for u in (extra_urls or []) if u] + [f"http://127.0.0.1:{p}" for p in COMMON_PORTS]
+    urls = [u for u in (extra_urls or []) + [manager_url()] if u] + [f"http://127.0.0.1:{p}" for p in COMMON_PORTS]
     found, seen = [], set()
     for u in urls:
         u = u.rstrip("/")
@@ -472,14 +473,78 @@ def stop_native() -> bool:
 # facade
 # --------------------------------------------------------------------------- #
 
+# The standalone manager in <repo>/searxng/ (own GUI, installer, native venv). When it is
+# present the Arena delegates to it, so both share one installation, container and config.
+MANAGER = Path(__file__).resolve().parents[2] / "searxng" / "manager.py"
+
+
+def manager_available() -> bool:
+    return MANAGER.is_file()
+
+
+def manager_url() -> str:
+    """The URL the standalone manager last started SearXNG on ('' if unknown)."""
+    try:
+        return json.loads((MANAGER.parent / "config.json").read_text("utf-8")).get("last_url") or ""
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def _manager(args: list[str], progress: Progress, cancelled: Callable[[], bool], timeout: float = 1800) -> dict:
+    kw = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if os.name == "nt" else {}
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    p = subprocess.Popen([sys.executable, str(MANAGER), *args, "--json"], cwd=MANAGER.parent, env=env,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True,
+                         encoding="utf-8", errors="replace", **kw)
+    out: list[str] = []
+    reader = threading.Thread(target=lambda: out.append(p.stdout.read()), daemon=True)  # type: ignore[union-attr]
+    reader.start()
+    t0 = time.monotonic()
+    for line in p.stderr:  # type: ignore[union-attr]
+        line = line.strip()
+        if line:
+            progress(line[:200])
+        if cancelled() or time.monotonic() - t0 > timeout:
+            p.kill()
+            raise SearxError("Megszakítva." if cancelled() else "A SearXNG kezelő nem válaszolt időben.")
+    p.wait()
+    reader.join(5)
+    text = "".join(out).strip()
+    try:
+        res = json.loads(text.splitlines()[-1]) if text else {}
+    except ValueError:
+        res = {}
+    if p.returncode != 0 or not res.get("ok", True):
+        raise SearxError(res.get("error") or f"A SearXNG kezelő hibával állt le (kód: {p.returncode}).",
+                         res.get("hint") or "Részletek: searxng/logs/manager.log, vagy indítsd a searxng/start "
+                                            "kezelőt és nézd meg a Napló részt.")
+    return res
+
+
 def start(data_dir: str | os.PathLike, port: int, mode: str, progress: Progress,
           cancelled: Callable[[], bool] = lambda: False) -> dict:
+    if manager_available():
+        args = ["start", "--port", str(int(port))]
+        if mode in ("auto", "docker", "native"):
+            args += ["--mode", mode]
+        res = _manager(args, progress, cancelled)
+        return {"url": res["url"], "mode": mode if mode != "auto" else "kezelő (searxng/)"}
     if mode == "native" or (mode == "auto" and not shutil.which("docker") and native_available()):
         return {"url": start_native(data_dir, port, progress, cancelled), "mode": "native"}
     return {"url": start_docker(data_dir, port, progress, cancelled), "mode": "docker"}
 
 
 def stop() -> bool:
+    if manager_available():
+        try:
+            r = subprocess.run([sys.executable, str(MANAGER), "stop"], cwd=MANAGER.parent, capture_output=True,
+                               text=True, encoding="utf-8", errors="replace", timeout=90,
+                               env=dict(os.environ, PYTHONUTF8="1"))
+            if "leállítva" in r.stderr:
+                stop_native()
+                return True
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     a = stop_native()
     b = stop_docker() if shutil.which("docker") else False
     return a or b
@@ -487,7 +552,8 @@ def stop() -> bool:
 
 def status(configured_url: str = "") -> dict:
     d = docker_status()
-    info = {"docker": d, "native_available": native_available(),
+    info = {"docker": d, "native_available": native_available() or manager_available(),
+            "manager": str(MANAGER) if manager_available() else "",
             "native_running": bool(_native and _native.poll() is None),
             "container": container_state() if d.get("ok") else None, "configured_url": configured_url}
     if info["container"] == "running":
